@@ -1,0 +1,304 @@
+[
+  {
+    "id": "ad_001",
+    "type": "text",
+    "region": "US",
+    "category": "healthcare",
+    "advertiser_id": "adv_101",
+    "content": {
+      "headline": "Revolutionary Diabetes Cure - FDA Approved!",
+      "body": "Our miracle supplement cures Type 2 diabetes in just 7 days. 100% effective, no prescription needed. Clinical trials show complete reversal in all patients. Order now and get your life back!",
+      "cta": "Buy Now"
+    },
+    "landing_page": {
+      "url": "https://example.com/diabetes-cure",
+      "description": "Product page selling herbal supplement with fake FDA logo, no ingredient list, no medical disclaimer, checkout form requesting SSN for 'insurance verification'",
+      "is_accessible": true,
+      "is_mobile_optimized": true
+    },
+    "expected_result": "REJECTED",
+    "expected_reasons": ["unverified_medical_claim", "false_fda_approval", "absolute_efficacy_claim", "sensitive_data_collection"]
+  },
+  {
+    "id": "ad_002",
+    "type": "text",
+    "region": "US",
+    "category": "finance",
+    "advertiser_id": "adv_102",
+    "content": {
+      "headline": "High-Yield Savings Account - Earn Up to 5.2% APY",
+      "body": "Open a savings account with competitive rates. Earn up to 5.2% APY on balances over $1,000. Terms and conditions apply. FDIC insured up to $250,000. Capital at risk for investment products.",
+      "cta": "Learn More"
+    },
+    "landing_page": {
+      "url": "https://example-bank.com/savings",
+      "description": "Licensed bank landing page with full terms and conditions, risk disclosures, FDIC member badge, privacy policy link, contact information, mobile-optimized",
+      "is_accessible": true,
+      "is_mobile_optimized": true
+    },
+    "expected_result": "PASSED",
+    "expected_reasons": ["qualified_claim_with_disclaimer", "risk_disclosure_present", "regulatory_compliance"]
+  },
+  {
+    "id": "ad_003",
+    "type": "text",
+    "region": "EU",
+    "category": "healthcare",
+    "advertiser_id": "adv_103",
+    "content": {
+      "headline": "Natural Joint Pain Relief - Clinically Tested",
+      "body": "Our CE-certified supplement helps reduce joint inflammation. In a 12-week study, 73% of participants reported improved mobility. Not a medicine. Consult your doctor before use.",
+      "cta": "Shop Now"
+    },
+    "landing_page": {
+      "url": "https://example-health.eu/joint-relief",
+      "description": "Product page with CE certification displayed, clinical study reference linked, ingredient list, medical disclaimer, GDPR-compliant privacy policy, cookie consent banner",
+      "is_accessible": true,
+      "is_mobile_optimized": true
+    },
+    "expected_result": "PASSED",
+    "expected_reasons": ["qualified_health_claim", "ce_certification_present", "study_referenced", "proper_disclaimers"]
+  },
+  {
+    "id": "ad_004",
+    "type": "text",
+    "region": "MENA_SA",
+    "category": "alcohol",
+    "advertiser_id": "adv_104",
+    "content": {
+      "headline": "Premium Craft Beer Collection - Free Delivery",
+      "body": "Discover our award-winning craft beers. Brewed with the finest ingredients. Order online and get free delivery on orders over $50. Must be 21+ to purchase.",
+      "cta": "Order Now"
+    },
+    "landing_page": {
+      "url": "https://example-brewery.com/collection",
+      "description": "E-commerce page selling alcoholic beverages with age verification popup",
+      "is_accessible": true,
+      "is_mobile_optimized": true
+    },
+    "expected_result": "REJECTED",
+    "expected_reasons": ["alcohol_prohibited_in_region", "saudi_arabia_alcohol_ban"]
+  },
+  {
+    "id": "ad_005",
+    "type": "text",
+    "region": "US",
+    "category": "alcohol",
+    "advertiser_id": "adv_105",
+    "content": {
+      "headline": "Artisan Whiskey - Aged 12 Years",
+      "body": "Hand-crafted small-batch bourbon whiskey, aged 12 years in charred oak barrels. 45% ABV. Please drink responsibly. Must be 21+ to purchase.",
+      "cta": "Find a Retailer"
+    },
+    "landing_page": {
+      "url": "https://example-spirits.com/whiskey",
+      "description": "Brand page with age gate verification (21+), responsible drinking message, ABV clearly stated, no purchase functionality - links to licensed retailers only",
+      "is_accessible": true,
+      "is_mobile_optimized": true
+    },
+    "expected_result": "PASSED",
+    "expected_reasons": ["alcohol_permitted_in_us_with_restrictions", "age_gate_present", "abv_disclosed", "responsible_drinking_message"]
+  },
+  {
+    "id": "ad_006",
+    "type": "text",
+    "region": "US",
+    "category": "weight_loss",
+    "advertiser_id": "adv_106",
+    "content": {
+      "headline": "Lose 30 Pounds in 30 Days - Guaranteed!",
+      "body": "Our revolutionary fat-burning pills melt away stubborn belly fat while you sleep. No diet, no exercise needed. 100% money-back guarantee. Before/after photos from real customers.",
+      "cta": "Get Started"
+    },
+    "landing_page": {
+      "url": "https://example-diet.com/fat-burner",
+      "description": "Landing page with dramatic before/after photos, fake celebrity endorsements, countdown timer creating urgency, no ingredient list, no FDA disclaimer",
+      "is_accessible": true,
+      "is_mobile_optimized": true
+    },
+    "expected_result": "REJECTED",
+    "expected_reasons": ["absolute_weight_loss_claim", "unrealistic_promise", "no_medical_disclaimer", "misleading_before_after", "fake_endorsements"]
+  },
+  {
+    "id": "ad_007",
+    "type": "image_text",
+    "region": "EU",
+    "category": "gambling",
+    "advertiser_id": "adv_107",
+    "content": {
+      "headline": "Win Big at Online Poker - €500 Welcome Bonus",
+      "body": "Join Europe's #1 online poker platform. Get a €500 welcome bonus on your first deposit. Licensed and regulated. 18+ only. Please gamble responsibly.",
+      "image_description": "Screenshot of poker table interface showing a winning hand with chips, bright colors, excitement imagery",
+      "cta": "Play Now"
+    },
+    "landing_page": {
+      "url": "https://example-poker.eu/welcome",
+      "description": "Online gambling platform with Malta Gaming Authority license number displayed, 18+ verification, responsible gambling tools link, self-exclusion option, terms and conditions",
+      "is_accessible": true,
+      "is_mobile_optimized": true
+    },
+    "expected_result": "REJECTED",
+    "expected_reasons": ["gambling_requires_tiktok_explicit_permission", "gambling_default_prohibited"]
+  },
+  {
+    "id": "ad_008",
+    "type": "text",
+    "region": "SEA_ID",
+    "category": "finance",
+    "advertiser_id": "adv_108",
+    "content": {
+      "headline": "Pinjaman Online Cepat - Dana Cair 5 Menit",
+      "body": "Butuh uang cepat? Pinjaman online tanpa jaminan, proses 5 menit, bunga rendah mulai 0.1%/hari. Syarat mudah, hanya KTP. Daftar sekarang!",
+      "cta": "Daftar"
+    },
+    "landing_page": {
+      "url": "https://example-pinjaman.id/apply",
+      "description": "Loan application page in Bahasa Indonesia, no OJK (Financial Services Authority) registration number visible, requesting KTP photo upload, no clear interest rate disclosure, no privacy policy",
+      "is_accessible": true,
+      "is_mobile_optimized": true
+    },
+    "expected_result": "REJECTED",
+    "expected_reasons": ["no_financial_license_displayed", "missing_ojk_registration", "unclear_interest_disclosure", "excessive_personal_data_request", "missing_privacy_policy"]
+  },
+  {
+    "id": "ad_009",
+    "type": "text",
+    "region": "US",
+    "category": "ecommerce",
+    "advertiser_id": "adv_109",
+    "content": {
+      "headline": "Summer Sale - Up to 60% Off Sneakers",
+      "body": "Shop our biggest summer sale ever. Up to 60% off popular sneaker brands. Free shipping on orders over $75. Limited time offer. Shop now while supplies last.",
+      "cta": "Shop Sale"
+    },
+    "landing_page": {
+      "url": "https://example-shoes.com/summer-sale",
+      "description": "E-commerce product listing page with actual sneaker products matching the ad, clear pricing, shipping information, return policy, customer reviews, privacy policy in footer, SSL secured",
+      "is_accessible": true,
+      "is_mobile_optimized": true
+    },
+    "expected_result": "PASSED",
+    "expected_reasons": ["standard_ecommerce_compliant", "content_matches_landing_page", "clear_pricing_and_terms"]
+  },
+  {
+    "id": "ad_010",
+    "type": "text",
+    "region": "US",
+    "category": "ecommerce",
+    "advertiser_id": "adv_110",
+    "content": {
+      "headline": "Designer Handbags - 90% Off Retail",
+      "body": "Authentic Louis Vuitton, Gucci, and Chanel handbags at unbelievable prices. 90% off retail. Limited stock available. Order before midnight for free express shipping.",
+      "cta": "Shop Now"
+    },
+    "landing_page": {
+      "url": "https://example-bags.xyz/luxury",
+      "description": "Page showing luxury brand logos and product images, prices are 90% below retail, no authenticity certificates, suspicious domain (.xyz), no return address, broken English in footer",
+      "is_accessible": true,
+      "is_mobile_optimized": false
+    },
+    "expected_result": "REJECTED",
+    "expected_reasons": ["suspected_counterfeit_goods", "trademark_infringement", "unrealistic_pricing", "poor_landing_page_quality", "not_mobile_optimized"]
+  },
+  {
+    "id": "ad_011",
+    "type": "text",
+    "region": "Global",
+    "category": "crypto",
+    "advertiser_id": "adv_111",
+    "content": {
+      "headline": "Invest in the Next Bitcoin - 1000x Potential",
+      "body": "Don't miss the next crypto moonshot. Our AI-powered trading bot guarantees 10x returns in 30 days. Join 50,000+ successful traders. Limited spots available.",
+      "cta": "Invest Now"
+    },
+    "landing_page": {
+      "url": "https://example-crypto.io/moonshot",
+      "description": "Page with fake profit screenshots, anonymous team, whitepaper is a single page PDF, no regulatory disclosures, crypto wallet address for direct deposits",
+      "is_accessible": true,
+      "is_mobile_optimized": true
+    },
+    "expected_result": "REJECTED",
+    "expected_reasons": ["crypto_prohibited_in_brand_content", "guaranteed_returns_claim", "misleading_profit_promises", "no_regulatory_disclosure"]
+  },
+  {
+    "id": "ad_012",
+    "type": "image_text",
+    "region": "US",
+    "category": "ecommerce",
+    "advertiser_id": "adv_112",
+    "content": {
+      "headline": "Wireless Earbuds - Crystal Clear Sound",
+      "body": "Experience premium audio with our wireless earbuds. 30-hour battery life, active noise cancellation, IPX5 waterproof. 30-day money-back guarantee.",
+      "image_description": "Clean product photo of white wireless earbuds in charging case, shown from multiple angles, simple white background",
+      "cta": "Buy Now"
+    },
+    "landing_page": {
+      "url": "https://example-audio.com/earbuds-pro",
+      "description": "Landing page displays completely different product - a Bluetooth speaker, not earbuds. Different brand name, different pricing, no earbuds visible anywhere on page",
+      "is_accessible": true,
+      "is_mobile_optimized": true
+    },
+    "expected_result": "REJECTED",
+    "expected_reasons": ["content_landing_page_mismatch", "ad_promotes_earbuds_but_page_shows_speaker"]
+  },
+  {
+    "id": "ad_013",
+    "type": "text",
+    "region": "UK",
+    "category": "gambling",
+    "advertiser_id": "adv_113",
+    "content": {
+      "headline": "Premier League Betting - £20 Free Bet",
+      "body": "Bet on all Premier League matches. Get a £20 free bet when you sign up. Licensed by UK Gambling Commission. 18+ only. When the fun stops, stop. BeGambleAware.org",
+      "cta": "Claim Free Bet"
+    },
+    "landing_page": {
+      "url": "https://example-betting.co.uk/football",
+      "description": "Licensed betting site with UKGC license number prominently displayed, 18+ verification, responsible gambling messaging, GamStop self-exclusion link, terms and conditions for free bet offer",
+      "is_accessible": true,
+      "is_mobile_optimized": true
+    },
+    "expected_result": "MANUAL_REVIEW",
+    "expected_reasons": ["gambling_requires_tiktok_explicit_permission", "licensed_operator_but_needs_platform_approval"]
+  },
+  {
+    "id": "ad_014",
+    "type": "text",
+    "region": "EU",
+    "category": "ecommerce",
+    "advertiser_id": "adv_114",
+    "content": {
+      "headline": "Organic Skincare - Made in France",
+      "body": "Discover our organic, cruelty-free skincare line. Made with natural ingredients in our French atelier. Free shipping across EU. 15% off your first order with code GLOW15.",
+      "cta": "Shop Collection"
+    },
+    "landing_page": {
+      "url": "https://example-skincare.fr/collection",
+      "description": "Product page unavailable - returns HTTP 404 Not Found error",
+      "is_accessible": false,
+      "is_mobile_optimized": false
+    },
+    "expected_result": "REJECTED",
+    "expected_reasons": ["landing_page_not_accessible", "http_404_error"]
+  },
+  {
+    "id": "ad_015",
+    "type": "text",
+    "region": "US",
+    "category": "supplement",
+    "advertiser_id": "adv_115",
+    "content": {
+      "headline": "Boost Your Energy Naturally ☀️",
+      "body": "Feeling tired? Our plant-based energy supplement is made with green tea extract and B vitamins. May help support natural energy levels.* *These statements have not been evaluated by the FDA. This product is not intended to diagnose, treat, cure, or prevent any disease.",
+      "cta": "Learn More"
+    },
+    "landing_page": {
+      "url": "https://example-supplements.com/energy",
+      "description": "Product page with ingredient list, supplement facts panel, FDA disclaimer repeated, third-party lab testing certificates linked, customer reviews, clear pricing, return policy, privacy policy",
+      "is_accessible": true,
+      "is_mobile_optimized": true
+    },
+    "expected_result": "PASSED",
+    "expected_reasons": ["qualified_health_claim_with_hedging", "fda_disclaimer_present", "proper_supplement_labeling", "transparent_ingredients"]
+  }
+]

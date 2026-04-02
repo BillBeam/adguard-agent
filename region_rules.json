@@ -1,0 +1,64 @@
+{
+  "rules": {
+    "US": {
+      "alcohol": {"status": "restricted", "min_age": 25, "requirements": ["age_targeting_25+", "abv_disclosure", "responsible_drinking_message"], "notes": "Permitted with restrictions"},
+      "gambling": {"status": "prohibited", "requirements": ["tiktok_explicit_permission", "valid_license"], "notes": "Default prohibited, requires TikTok written permission + state license"},
+      "healthcare": {"status": "restricted", "requirements": ["fda_disclaimer", "no_cure_claims", "no_absolute_efficacy", "ingredient_disclosure"], "notes": "Supplements need FDA disclaimer, cannot claim FDA approval"},
+      "finance": {"status": "restricted", "requirements": ["valid_license", "risk_disclosure", "fdic_if_applicable", "clear_rates"], "notes": "Must hold financial license, risk disclosures required"},
+      "crypto": {"status": "prohibited_brand_content", "requirements": ["tiktok_preapproval", "no_guaranteed_returns"], "notes": "Prohibited in branded content, restricted in standard ads"},
+      "weight_loss": {"status": "restricted", "requirements": ["no_absolute_claims", "no_unrealistic_timeline", "no_altered_before_after"], "notes": "Prohibited in branded content"},
+      "ecommerce": {"status": "permitted", "requirements": ["content_landing_page_match", "clear_pricing", "return_policy"], "notes": "Standard compliance"},
+      "political": {"status": "prohibited", "requirements": [], "notes": "All paid political ads banned globally"}
+    },
+    "EU": {
+      "alcohol": {"status": "restricted", "min_age": 18, "requirements": ["age_targeting_18+", "eea_brand_content_prohibited"], "notes": "EEA branded content prohibited, standard ads with restrictions"},
+      "gambling": {"status": "prohibited", "requirements": ["tiktok_explicit_permission", "valid_license", "responsible_gambling"], "notes": "Default prohibited, each member state has different rules"},
+      "healthcare": {"status": "restricted", "requirements": ["ce_certification", "eu_health_claims_regulation", "no_cure_claims"], "notes": "Must comply with EU Reg 1924/2006 on health claims"},
+      "finance": {"status": "restricted", "requirements": ["mifid_ii_compliance", "risk_disclosure", "license_in_target_market"], "notes": "Must comply with MiFID II"},
+      "crypto": {"status": "restricted", "requirements": ["mica_compliance", "no_guaranteed_returns", "tiktok_preapproval"], "notes": "MiCA framework, branded content prohibited"},
+      "weight_loss": {"status": "restricted", "requirements": ["no_absolute_claims", "branded_content_prohibited"], "notes": "EU health claims regulation applies"},
+      "ecommerce": {"status": "permitted", "requirements": ["gdpr_privacy_policy", "cookie_consent", "dsa_transparency", "content_landing_page_match"], "notes": "DSA and GDPR compliance required"},
+      "political": {"status": "prohibited", "requirements": [], "notes": "All paid political ads banned globally"}
+    },
+    "SEA_ID": {
+      "alcohol": {"status": "prohibited", "requirements": [], "notes": "Majority Muslim country, alcohol ads prohibited"},
+      "gambling": {"status": "prohibited", "requirements": [], "notes": "All gambling prohibited"},
+      "healthcare": {"status": "restricted", "requirements": ["bpom_approval", "no_cure_claims"], "notes": "BPOM (Indonesia FDA) approval required"},
+      "finance": {"status": "restricted", "requirements": ["ojk_registration", "clear_interest_rate_annual", "afpi_compliance"], "notes": "OJK registration number required for fintech lending"},
+      "crypto": {"status": "prohibited", "requirements": [], "notes": "Crypto trading ads prohibited"},
+      "weight_loss": {"status": "restricted", "requirements": ["no_absolute_claims", "bpom_if_supplement"], "notes": "Strict claims restrictions"},
+      "ecommerce": {"status": "permitted", "requirements": ["content_landing_page_match", "bahasa_indonesia_support"], "notes": "Standard compliance + local language"},
+      "political": {"status": "prohibited", "requirements": [], "notes": "All paid political ads banned globally"}
+    },
+    "MENA_SA": {
+      "alcohol": {"status": "prohibited", "requirements": [], "notes": "Strictly prohibited under Saudi law including 0% ABV"},
+      "gambling": {"status": "prohibited", "requirements": [], "notes": "All gambling strictly prohibited"},
+      "healthcare": {"status": "restricted", "requirements": ["sfda_compliance", "no_cure_claims", "modesty_standards"], "notes": "SFDA compliance required"},
+      "finance": {"status": "restricted", "requirements": ["sama_license", "sharia_compliance_if_applicable"], "notes": "SAMA (Saudi Central Bank) license required"},
+      "crypto": {"status": "prohibited", "requirements": [], "notes": "Crypto ads prohibited"},
+      "weight_loss": {"status": "restricted", "requirements": ["no_absolute_claims", "modesty_in_imagery"], "notes": "Claims restrictions + modesty standards"},
+      "ecommerce": {"status": "permitted", "requirements": ["content_landing_page_match", "arabic_support", "modesty_standards"], "notes": "Must respect cultural and religious norms"},
+      "political": {"status": "prohibited", "requirements": [], "notes": "All paid political ads banned + cannot criticize royal family/government"}
+    },
+    "UK": {
+      "alcohol": {"status": "restricted", "min_age": 18, "requirements": ["age_targeting_18+", "responsible_drinking", "asa_compliance"], "notes": "ASA (Advertising Standards Authority) rules apply"},
+      "gambling": {"status": "restricted", "requirements": ["ukgc_license", "age_verification_18+", "responsible_gambling", "gamstop_link", "tiktok_permission"], "notes": "UKGC license required, responsible gambling messaging mandatory"},
+      "healthcare": {"status": "restricted", "requirements": ["mhra_compliance", "no_cure_claims"], "notes": "MHRA regulations for health products"},
+      "finance": {"status": "restricted", "requirements": ["fca_authorization", "risk_disclosure", "clear_rates"], "notes": "FCA authorization required"},
+      "crypto": {"status": "restricted", "requirements": ["fca_registration", "no_guaranteed_returns"], "notes": "FCA crypto registration required"},
+      "weight_loss": {"status": "restricted", "requirements": ["no_absolute_claims", "asa_compliance"], "notes": "ASA strict rules on weight loss claims"},
+      "ecommerce": {"status": "permitted", "requirements": ["content_landing_page_match", "clear_pricing", "consumer_rights_act"], "notes": "Standard compliance"},
+      "political": {"status": "prohibited", "requirements": [], "notes": "All paid political ads banned globally"}
+    },
+    "Global": {
+      "alcohol": {"status": "varies", "requirements": ["check_local_rules"], "notes": "Varies by market, check specific region"},
+      "gambling": {"status": "prohibited", "requirements": ["tiktok_explicit_permission", "valid_local_license"], "notes": "Default prohibited globally"},
+      "healthcare": {"status": "restricted", "requirements": ["no_cure_claims", "no_absolute_efficacy", "local_regulatory_compliance"], "notes": "Universal: no unverified medical claims"},
+      "finance": {"status": "restricted", "requirements": ["valid_license", "risk_disclosure", "no_guaranteed_returns"], "notes": "Universal: license + risk disclosure"},
+      "crypto": {"status": "prohibited_brand_content", "requirements": ["no_guaranteed_returns"], "notes": "Prohibited in branded content globally"},
+      "weight_loss": {"status": "restricted", "requirements": ["no_absolute_claims", "branded_content_prohibited"], "notes": "Prohibited in branded content globally"},
+      "ecommerce": {"status": "permitted", "requirements": ["content_landing_page_match", "no_counterfeit", "clear_pricing"], "notes": "Standard compliance baseline"},
+      "political": {"status": "prohibited", "requirements": [], "notes": "All paid political ads banned globally"}
+    }
+  }
+}

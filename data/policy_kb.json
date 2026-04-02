@@ -1,0 +1,162 @@
+[
+  {
+    "id": "POL_001",
+    "region": "Global",
+    "category": "healthcare",
+    "rule_text": "Advertisements must not make unverified medical claims or suggest that a product can cure, treat, or prevent diseases unless backed by verifiable clinical evidence. Claims such as '100% effective', 'miracle cure', or 'guaranteed results' are prohibited.",
+    "severity": "critical",
+    "source": "TikTok Advertising Policies - Misleading and False Content"
+  },
+  {
+    "id": "POL_002",
+    "region": "US",
+    "category": "healthcare",
+    "rule_text": "Health supplement advertisements targeting US users must include the FDA disclaimer: 'These statements have not been evaluated by the FDA. This product is not intended to diagnose, treat, cure, or prevent any disease.' Claiming FDA approval for supplements is strictly prohibited as supplements are not FDA-approved.",
+    "severity": "critical",
+    "source": "TikTok Advertising Policies - Healthcare & Medicine (US Market Requirements)"
+  },
+  {
+    "id": "POL_003",
+    "region": "EU",
+    "category": "healthcare",
+    "rule_text": "Health products advertised in EU markets must display valid CE certification where applicable. Health claims must comply with EU Regulation 1924/2006 and only use pre-approved health claims from the EU Register. Products must not claim to diagnose, treat, cure or prevent disease unless classified as medicinal products with appropriate authorization.",
+    "severity": "critical",
+    "source": "TikTok Advertising Policies - Healthcare & Medicine (EU Market Requirements)"
+  },
+  {
+    "id": "POL_004",
+    "region": "Global",
+    "category": "weight_loss",
+    "rule_text": "Weight loss product advertisements must not promise specific weight loss amounts within specific timeframes (e.g., 'lose 30 pounds in 30 days'). Before/after images must not be digitally altered or misleading. Claims of weight loss without diet or exercise are prohibited. Weight loss products are completely prohibited in branded content campaigns.",
+    "severity": "critical",
+    "source": "TikTok Advertising Policies - Healthcare & Medicine / Branded Content Policy"
+  },
+  {
+    "id": "POL_005",
+    "region": "MENA_SA",
+    "category": "alcohol",
+    "rule_text": "All advertising for alcoholic beverages is strictly prohibited in Saudi Arabia, including 0% ABV beverages. This applies to all ad formats and placements. Content must not depict, promote, or reference alcohol consumption in any way.",
+    "severity": "critical",
+    "source": "TikTok Advertising Policies - Alcohol: Market-specific Requirements"
+  },
+  {
+    "id": "POL_006",
+    "region": "MENA",
+    "category": "alcohol",
+    "rule_text": "Alcohol advertising is prohibited across all MENA markets including Saudi Arabia, UAE, Kuwait, Qatar, Bahrain, Oman, Iraq, Jordan, Lebanon, Egypt, Morocco, Tunisia, Algeria, Libya, Yemen, and Palestine.",
+    "severity": "critical",
+    "source": "TikTok Advertising Policies - Alcohol: Market-specific Requirements"
+  },
+  {
+    "id": "POL_007",
+    "region": "US",
+    "category": "alcohol",
+    "rule_text": "Alcohol advertising in the US is permitted but restricted: must target users aged 25 and above, must include the alcohol content/ABV percentage, must include a responsible drinking message, must not portray excessive consumption as desirable, and must not target or appeal to minors.",
+    "severity": "moderate",
+    "source": "TikTok Advertising Policies - Alcohol: Market-specific Requirements"
+  },
+  {
+    "id": "POL_008",
+    "region": "Global",
+    "category": "gambling",
+    "rule_text": "Gambling advertisements are prohibited by default on TikTok globally. Only advertisers who have received explicit written permission from TikTok AND hold valid gambling licenses in the target market may advertise gambling services. Even with permission, gambling ads must include age restriction notices and responsible gambling messaging.",
+    "severity": "critical",
+    "source": "TikTok Advertising Policies - Gambling and Games"
+  },
+  {
+    "id": "POL_009",
+    "region": "Global",
+    "category": "crypto",
+    "rule_text": "Cryptocurrency, NFT, and forex trading advertisements are completely prohibited in branded content campaigns globally. For standard ad placements, crypto advertising requires TikTok pre-approval and compliance with local financial regulations. Guaranteed return claims are always prohibited regardless of format.",
+    "severity": "critical",
+    "source": "TikTok Advertising Policies - Financial Services / Branded Content Policy"
+  },
+  {
+    "id": "POL_010",
+    "region": "Global",
+    "category": "finance",
+    "rule_text": "Financial service advertisements must include appropriate risk disclosures. Guaranteeing specific investment returns is prohibited. Advertisers must hold valid financial licenses in their target markets. Interest rates and fees must be clearly disclosed. The statement 'Capital at risk' or equivalent must be included for investment products.",
+    "severity": "high",
+    "source": "TikTok Advertising Policies - Financial Services"
+  },
+  {
+    "id": "POL_011",
+    "region": "SEA_ID",
+    "category": "finance",
+    "rule_text": "Online lending (fintech) advertisements in Indonesia must display a valid OJK (Otoritas Jasa Keuangan / Financial Services Authority) registration number. Advertisements must clearly state the full annual interest rate, not daily rates that obscure the true cost. Lending apps must comply with AFPI (Indonesian Fintech Lending Association) code of conduct.",
+    "severity": "critical",
+    "source": "TikTok Advertising Policies - Financial Services (Indonesia Market Requirements)"
+  },
+  {
+    "id": "POL_012",
+    "region": "Global",
+    "category": "all",
+    "rule_text": "Landing pages must be functional, accessible, and mobile-optimized. The product or service promoted in the ad must match what is offered on the landing page (content-landing page consistency). Landing pages must include privacy policy, contact information, and where applicable, return/refund policy. Pages must not auto-download files or request unnecessary sensitive personal information.",
+    "severity": "high",
+    "source": "TikTok Advertising Policies - Ad Format and Functionality / Landing Page Requirements"
+  },
+  {
+    "id": "POL_013",
+    "region": "Global",
+    "category": "all",
+    "rule_text": "Advertisements must not promote counterfeit goods or infringe on intellectual property rights. Using brand names, logos, or trademarks without authorization is prohibited. Pricing that is unrealistically low compared to retail (e.g., luxury goods at 90% discount) may indicate counterfeit goods and will be flagged for review.",
+    "severity": "critical",
+    "source": "TikTok Advertising Policies - Intellectual Property / Counterfeit Goods"
+  },
+  {
+    "id": "POL_014",
+    "region": "Global",
+    "category": "all",
+    "rule_text": "All forms of paid political advertising are strictly prohibited on TikTok globally. This includes ads promoting or opposing political candidates, parties, government policies, or political issues. Content that could be perceived as election interference is also prohibited.",
+    "severity": "critical",
+    "source": "TikTok Advertising Policies - Political Ads"
+  },
+  {
+    "id": "POL_015",
+    "region": "Global",
+    "category": "all",
+    "rule_text": "Advertisements must not contain or promote dangerous products or services including: illegal drugs and drug paraphernalia, weapons and ammunition, explosives, products facilitating illegal activities, surveillance equipment for unauthorized use, or products promoting self-harm.",
+    "severity": "critical",
+    "source": "TikTok Advertising Policies - Dangerous Products or Services"
+  },
+  {
+    "id": "POL_016",
+    "region": "EU",
+    "category": "all",
+    "rule_text": "Under the EU Digital Services Act (DSA), advertisements must not target users under 18 years old based on profiling. All ads must be recorded in a searchable ad transparency database including: ad content, target audience criteria, advertiser identity, and payment information. Ads must not use sensitive personal data (religion, sexual orientation, health status) for targeting.",
+    "severity": "high",
+    "source": "EU Digital Services Act - Advertising Transparency Requirements"
+  },
+  {
+    "id": "POL_017",
+    "region": "US",
+    "category": "all",
+    "rule_text": "Under COPPA (Children's Online Privacy Protection Act), advertisements must not knowingly collect personal information from children under 13 without verifiable parental consent. Ad content targeting children must be age-appropriate. Influencer/sponsored content must include clear and conspicuous disclosure of the paid relationship (FTC endorsement guidelines).",
+    "severity": "critical",
+    "source": "FTC COPPA / Endorsement Guidelines"
+  },
+  {
+    "id": "POL_018",
+    "region": "Global",
+    "category": "all",
+    "rule_text": "Absolute and unsubstantiated claims are prohibited. This includes superlatives like 'best', 'number one', '#1' without verifiable third-party evidence, guarantee words like '100%', 'guaranteed', 'permanent', 'forever', and false urgency claims like 'last chance' when the offer is recurring.",
+    "severity": "moderate",
+    "source": "TikTok Advertising Policies - Misleading and False Content"
+  },
+  {
+    "id": "POL_019",
+    "region": "MENA_SA",
+    "category": "all",
+    "rule_text": "All advertising content in Saudi Arabia must not contain material that blasphemes Islam or any other religion, insults the Saudi Royal Family or government, or contradicts public morals. Influencers must obtain a license from GCAM (General Commission for Audiovisual Media). Women appearing in ads must comply with local modesty standards.",
+    "severity": "critical",
+    "source": "Saudi Arabia CITC / GAMR Advertising Regulations"
+  },
+  {
+    "id": "POL_020",
+    "region": "Global",
+    "category": "all",
+    "rule_text": "Advertisements must not contain adult or sexually explicit content, graphic violence, hate speech, content promoting discrimination based on race/ethnicity/gender/religion/disability/sexual orientation, content promoting or glorifying self-harm or suicide, or content that is intentionally shocking or disturbing.",
+    "severity": "critical",
+    "source": "TikTok Advertising Policies - Adult and Sexual Content / Violence / Hate Speech"
+  }
+]
