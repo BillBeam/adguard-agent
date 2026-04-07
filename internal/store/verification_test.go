@@ -77,7 +77,7 @@ func TestVerifier_Agree(t *testing.T) {
 		},
 	}
 
-	rs := NewReviewStore(testLogger())
+	rs := NewReviewStore(testLogger(), "")
 	record := testRecord()
 	rs.Store(record)
 
@@ -110,7 +110,7 @@ func TestVerifier_Disagree(t *testing.T) {
 		},
 	}
 
-	rs := NewReviewStore(testLogger())
+	rs := NewReviewStore(testLogger(), "")
 	rs.Store(testRecord())
 
 	v := NewVerifier(mockLLM, rs, testLogger())
@@ -135,7 +135,7 @@ func TestVerifier_Disagree(t *testing.T) {
 func TestVerifier_LLMFailure(t *testing.T) {
 	mockLLM := &mockVerifyLLM{err: fmt.Errorf("API error")}
 
-	rs := NewReviewStore(testLogger())
+	rs := NewReviewStore(testLogger(), "")
 	rs.Store(testRecord())
 
 	v := NewVerifier(mockLLM, rs, testLogger())
@@ -168,7 +168,7 @@ func TestVerifier_ParseFailure(t *testing.T) {
 		},
 	}
 
-	rs := NewReviewStore(testLogger())
+	rs := NewReviewStore(testLogger(), "")
 	rs.Store(testRecord())
 
 	v := NewVerifier(mockLLM, rs, testLogger())
@@ -196,7 +196,7 @@ func TestVerifier_PromptIndependence(t *testing.T) {
 		},
 	}
 
-	rs := NewReviewStore(testLogger())
+	rs := NewReviewStore(testLogger(), "")
 	record := testRecord()
 	record.AgentTrace = []string{"tool_call:analyze_content", "tool_result:analyze_content", "LLM final judgment"}
 	rs.Store(record)
@@ -229,7 +229,7 @@ func TestVerifier_PromptIndependence(t *testing.T) {
 
 func TestVerifier_RecordNotFound(t *testing.T) {
 	mockLLM := &mockVerifyLLM{}
-	rs := NewReviewStore(testLogger())
+	rs := NewReviewStore(testLogger(), "")
 
 	v := NewVerifier(mockLLM, rs, testLogger())
 	_, err := v.Verify(context.Background(), "nonexistent", testAd())

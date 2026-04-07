@@ -22,6 +22,10 @@ const (
 
 	// Default maximum retry attempts before giving up.
 	defaultMaxRetries = 10
+
+	// Max529Retries is the number of consecutive 529 (overloaded) errors before
+	// triggering a model fallback. Mirrors Claude Code's MAX_529_RETRIES (withRetry.ts:54).
+	Max529Retries = 3
 )
 
 // APIError represents an HTTP API error with status code.
@@ -42,11 +46,33 @@ func (e *APIError) Error() string {
 
 func (e *APIError) Unwrap() error { return e.Err }
 
+// FallbackTriggeredError indicates that consecutive 529 errors have triggered
+// a model downgrade. The caller should retry the request with FallbackModel.
+//
+// Design reference: Claude Code's FallbackTriggeredError in withRetry.ts:326-365.
+type FallbackTriggeredError struct {
+	OriginalModel string
+	FallbackModel string
+	Consecutive   int
+}
+
+func (e *FallbackTriggeredError) Error() string {
+	return fmt.Sprintf("model fallback triggered: %d consecutive 529 errors, %s → %s",
+		e.Consecutive, e.OriginalModel, e.FallbackModel)
+}
+
+// RetryOptions configures the retry behavior.
+type RetryOptions struct {
+	MaxRetries    int
+	CurrentModel  string // for 529 fallback error message
+	FallbackModel string // "" = no fallback on 529
+}
+
 // withRetry executes an operation with exponential backoff retry.
 //
 // The retry strategy classifies errors by HTTP status code:
 //   - 429 (rate limit): retry with Retry-After header if present
-//   - 529 (overloaded): retry up to maxRetries
+//   - 529 (overloaded): retry up to Max529Retries, then trigger FallbackTriggeredError
 //   - 5xx (server error): retry
 //   - Connection errors: retry (ECONNRESET, EPIPE, timeout)
 //   - 4xx (client error, except 429): do NOT retry
@@ -57,20 +83,40 @@ func (e *APIError) Unwrap() error { return e.Err }
 func withRetry[T any](
 	ctx context.Context,
 	logger *slog.Logger,
-	maxRetries int,
+	opts RetryOptions,
 	operation func(ctx context.Context, attempt int) (T, error),
 ) (T, error) {
+	maxRetries := opts.MaxRetries
 	if maxRetries <= 0 {
 		maxRetries = defaultMaxRetries
 	}
 
-	var lastErr error
+	var (
+		lastErr        error
+		consecutive529 int
+	)
 	for attempt := 1; attempt <= maxRetries+1; attempt++ {
 		result, err := operation(ctx, attempt)
 		if err == nil {
 			return result, nil
 		}
 		lastErr = err
+
+		// Track consecutive 529s for model fallback.
+		var apiErr *APIError
+		if errors.As(err, &apiErr) && apiErr.StatusCode == 529 {
+			consecutive529++
+			if consecutive529 >= Max529Retries && opts.FallbackModel != "" {
+				var zero T
+				return zero, &FallbackTriggeredError{
+					OriginalModel: opts.CurrentModel,
+					FallbackModel: opts.FallbackModel,
+					Consecutive:   consecutive529,
+				}
+			}
+		} else {
+			consecutive529 = 0 // non-529 resets the counter
+		}
 
 		// Check if we should retry this error.
 		if !shouldRetry(err) {
@@ -94,6 +140,7 @@ func withRetry[T any](
 			slog.Int("attempt", attempt),
 			slog.Duration("delay", delay),
 			slog.String("error", err.Error()),
+			slog.Int("consecutive_529", consecutive529),
 		)
 
 		select {

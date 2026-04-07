@@ -14,7 +14,7 @@ func testLogger() *slog.Logger {
 }
 
 func TestStore_StoreAndGet(t *testing.T) {
-	rs := NewReviewStore(testLogger())
+	rs := NewReviewStore(testLogger(), "")
 	record := &ReviewRecord{
 		ReviewResult: types.ReviewResult{AdID: "ad_001", Decision: types.DecisionPassed, Confidence: 0.95},
 		AdvertiserID: "adv_001",
@@ -39,7 +39,7 @@ func TestStore_StoreAndGet(t *testing.T) {
 }
 
 func TestStore_QueryByAdvertiser(t *testing.T) {
-	rs := NewReviewStore(testLogger())
+	rs := NewReviewStore(testLogger(), "")
 	rs.Store(&ReviewRecord{ReviewResult: types.ReviewResult{AdID: "ad_001"}, AdvertiserID: "adv_A"})
 	rs.Store(&ReviewRecord{ReviewResult: types.ReviewResult{AdID: "ad_002"}, AdvertiserID: "adv_A"})
 	rs.Store(&ReviewRecord{ReviewResult: types.ReviewResult{AdID: "ad_003"}, AdvertiserID: "adv_B"})
@@ -61,7 +61,7 @@ func TestStore_QueryByAdvertiser(t *testing.T) {
 }
 
 func TestStore_QueryByRegionCategory(t *testing.T) {
-	rs := NewReviewStore(testLogger())
+	rs := NewReviewStore(testLogger(), "")
 	rs.Store(&ReviewRecord{ReviewResult: types.ReviewResult{AdID: "ad_001"}, Region: "US", Category: "healthcare"})
 	rs.Store(&ReviewRecord{ReviewResult: types.ReviewResult{AdID: "ad_002"}, Region: "US", Category: "healthcare"})
 	rs.Store(&ReviewRecord{ReviewResult: types.ReviewResult{AdID: "ad_003"}, Region: "EU", Category: "healthcare"})
@@ -78,7 +78,7 @@ func TestStore_QueryByRegionCategory(t *testing.T) {
 }
 
 func TestStore_QueryUnverifiedRejected(t *testing.T) {
-	rs := NewReviewStore(testLogger())
+	rs := NewReviewStore(testLogger(), "")
 	rs.Store(&ReviewRecord{ReviewResult: types.ReviewResult{AdID: "ad_001", Decision: types.DecisionRejected}})
 	rs.Store(&ReviewRecord{ReviewResult: types.ReviewResult{AdID: "ad_002", Decision: types.DecisionRejected}, VerificationStatus: VerificationConfirmed})
 	rs.Store(&ReviewRecord{ReviewResult: types.ReviewResult{AdID: "ad_003", Decision: types.DecisionPassed}})
@@ -91,7 +91,7 @@ func TestStore_QueryUnverifiedRejected(t *testing.T) {
 }
 
 func TestStore_Stats(t *testing.T) {
-	rs := NewReviewStore(testLogger())
+	rs := NewReviewStore(testLogger(), "")
 	rs.Store(&ReviewRecord{
 		ReviewResult: types.ReviewResult{AdID: "ad_001", Decision: types.DecisionPassed, Confidence: 0.90},
 		Region:       "US",
@@ -135,7 +135,7 @@ func TestStore_Stats(t *testing.T) {
 }
 
 func TestStore_ConcurrentAccess(t *testing.T) {
-	rs := NewReviewStore(testLogger())
+	rs := NewReviewStore(testLogger(), "")
 
 	var wg sync.WaitGroup
 	for i := 0; i < 100; i++ {
@@ -161,7 +161,7 @@ func TestStore_ConcurrentAccess(t *testing.T) {
 }
 
 func TestStore_PostReviewHook(t *testing.T) {
-	rs := NewReviewStore(testLogger())
+	rs := NewReviewStore(testLogger(), "")
 
 	result := types.ReviewResult{AdID: "ad_hook", Decision: types.DecisionRejected, Confidence: 0.88}
 	rs.PostReview(result, "adv_X", "MENA_SA", "alcohol", "comprehensive")
@@ -176,7 +176,7 @@ func TestStore_PostReviewHook(t *testing.T) {
 }
 
 func TestStore_UpdateVerification(t *testing.T) {
-	rs := NewReviewStore(testLogger())
+	rs := NewReviewStore(testLogger(), "")
 	rs.Store(&ReviewRecord{
 		ReviewResult: types.ReviewResult{AdID: "ad_v1", Decision: types.DecisionRejected},
 	})

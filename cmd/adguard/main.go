@@ -8,11 +8,14 @@ import (
 	"os"
 	"path/filepath"
 
+	"sync"
+
 	"github.com/BillBeam/adguard-agent/internal/agent"
 	"github.com/BillBeam/adguard-agent/internal/agent/mock"
 	"github.com/BillBeam/adguard-agent/internal/compact"
 	"github.com/BillBeam/adguard-agent/internal/config"
 	"github.com/BillBeam/adguard-agent/internal/llm"
+	"github.com/BillBeam/adguard-agent/internal/shutdown"
 	"github.com/BillBeam/adguard-agent/internal/store"
 	"github.com/BillBeam/adguard-agent/internal/strategy"
 	"github.com/BillBeam/adguard-agent/internal/tool"
@@ -42,6 +45,10 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Graceful shutdown: wait for in-flight reviews, then flush stores.
+	var reviewWg sync.WaitGroup
+	shutdown.Setup(&reviewWg, logger)
+
 	logger.Info("AdGuard Agent started",
 		"provider", cfg.LLM.Provider,
 		"model", cfg.LLM.Model,
@@ -50,13 +57,13 @@ func main() {
 	)
 
 	if cfg.LLM.APIKey != "" {
-		runWithRealLLM(cfg, matrix, logger)
+		runWithRealLLM(cfg, matrix, logger, &reviewWg)
 	} else {
-		runWithMockLLM(matrix, logger, cfg)
+		runWithMockLLM(matrix, logger, cfg, &reviewWg)
 	}
 }
 
-func runWithRealLLM(cfg *config.Config, matrix *strategy.StrategyMatrix, logger *slog.Logger) {
+func runWithRealLLM(cfg *config.Config, matrix *strategy.StrategyMatrix, logger *slog.Logger, reviewWg *sync.WaitGroup) {
 	client, err := llm.NewClient(llm.ProviderConfig{
 		Name: cfg.LLM.Provider, BaseURL: cfg.LLM.BaseURL,
 		APIKey: cfg.LLM.APIKey, Model: cfg.LLM.Model,
@@ -73,18 +80,22 @@ func runWithRealLLM(cfg *config.Config, matrix *strategy.StrategyMatrix, logger 
 		os.Exit(1)
 	}
 
-	engine, stores := buildEngine(client, matrix, logger)
+	engine, stores := buildEngine(client, matrix, logger, cfg.Data.Dir)
 
 	limit := 3
 	if len(samples) < limit {
 		limit = len(samples)
 	}
 
+	// Display routing table.
+	fmt.Print(stores.router.FormatRoutingTable())
 	fmt.Printf("\n=== Real LLM Review (%d ads) ===\n\n", limit)
 	for i := 0; i < limit; i++ {
 		ad := &samples[i].AdContent
 		stores.budget.ResetForReview()
+		reviewWg.Add(1)
 		result, reviewErr := engine.Review(context.Background(), ad)
+		reviewWg.Done()
 		if reviewErr != nil {
 			logger.Error("review failed", "ad_id", ad.ID, "error", reviewErr)
 			continue
@@ -101,7 +112,7 @@ func runWithRealLLM(cfg *config.Config, matrix *strategy.StrategyMatrix, logger 
 	printReport(stores, client)
 }
 
-func runWithMockLLM(matrix *strategy.StrategyMatrix, logger *slog.Logger, cfg *config.Config) {
+func runWithMockLLM(matrix *strategy.StrategyMatrix, logger *slog.Logger, cfg *config.Config, reviewWg *sync.WaitGroup) {
 	logger.Info("no LLM_API_KEY set, running all samples with mock LLM + mock tools")
 
 	samples, err := loadSamples(filepath.Join(cfg.Data.Dir, cfg.Data.SamplesFile))
@@ -111,10 +122,10 @@ func runWithMockLLM(matrix *strategy.StrategyMatrix, logger *slog.Logger, cfg *c
 	}
 
 	// Shared Phase 5 components.
-	reviewStore := store.NewReviewStore(logger)
+	reviewStore := store.NewReviewStore(logger, "")
 	reputationMgr := store.NewReputationManager(logger)
-	appealStore := store.NewAppealStore(logger, reputationMgr)
-	trainingPool := store.NewTrainingPool(logger)
+	appealStore := store.NewAppealStore(logger, reputationMgr, "")
+	trainingPool := store.NewTrainingPool(logger, "")
 	versionMgr := strategy.NewVersionManager(logger)
 	auditHook := agent.NewAuditHook(logger)
 
@@ -137,12 +148,9 @@ func runWithMockLLM(matrix *strategy.StrategyMatrix, logger *slog.Logger, cfg *c
 		engine.WithPhase3(nil, nil, reviewStore, nil)
 		engine.WithPhase5(trainingPool, appealStore, reputationMgr, versionMgr)
 
-		// Phase 5 hooks.
-		plan := matrix.GetReviewPlan(ad.Region, ad.Category)
-		loopConfig := agent.NewLoopConfig(plan, ad, matrix.GetApplicablePolicies(ad.Region, ad.Category), reg.ExportDefinitions(), executor)
-		_ = loopConfig // hooks are set on LoopConfig in Run, not here — this is mock mode
-
+		reviewWg.Add(1)
 		result, reviewErr := engine.Review(context.Background(), ad)
+		reviewWg.Done()
 		if reviewErr != nil {
 			logger.Error("review failed", "ad_id", ad.ID, "error", reviewErr)
 			continue
@@ -151,7 +159,7 @@ func runWithMockLLM(matrix *strategy.StrategyMatrix, logger *slog.Logger, cfg *c
 			continue
 		}
 
-		plan = matrix.GetReviewPlan(ad.Region, ad.Category)
+		plan := matrix.GetReviewPlan(ad.Region, ad.Category)
 		mode := "single"
 		if plan.Pipeline != "fast" && len(plan.RequiredAgents) > 1 {
 			mode = "multi"
@@ -231,13 +239,20 @@ type engineStores struct {
 	versionMgr    *strategy.VersionManager
 	budget        *compact.TokenBudget
 	auditHook     *agent.AuditHook
+	router        *llm.ModelRouter
 }
 
-func buildEngine(client llm.LLMClient, matrix *strategy.StrategyMatrix, logger *slog.Logger) (*agent.ReviewEngine, *engineStores) {
-	reviewStore := store.NewReviewStore(logger)
+func buildEngine(client llm.LLMClient, matrix *strategy.StrategyMatrix, logger *slog.Logger, dataDir string) (*agent.ReviewEngine, *engineStores) {
+	// JSONL persistence: each store gets its own file in the data directory.
+	reviewStore := store.NewReviewStore(logger, filepath.Join(dataDir, "reviews.jsonl"))
 	reputationMgr := store.NewReputationManager(logger)
-	appealStore := store.NewAppealStore(logger, reputationMgr)
-	trainingPool := store.NewTrainingPool(logger)
+	appealStore := store.NewAppealStore(logger, reputationMgr, filepath.Join(dataDir, "appeals.jsonl"))
+	trainingPool := store.NewTrainingPool(logger, filepath.Join(dataDir, "training.jsonl"))
+
+	// Register JSONL flush for graceful shutdown.
+	shutdown.RegisterCleanup(func() { reviewStore.Flush() })
+	shutdown.RegisterCleanup(func() { appealStore.Flush() })
+	shutdown.RegisterCleanup(func() { trainingPool.Flush() })
 	versionMgr := strategy.NewVersionManager(logger)
 	verifier := store.NewVerifier(client, reviewStore, logger).WithTrainingPool(trainingPool)
 	auditHook := agent.NewAuditHook(logger)
@@ -246,7 +261,11 @@ func buildEngine(client llm.LLMClient, matrix *strategy.StrategyMatrix, logger *
 	executor := tool.NewExecutor(reg, logger)
 
 	hookChain := agent.NewHookChain(logger).Add(executor).Add(reviewStore).Add(trainingPool)
+
+	// Model routing: per-pipeline and per-role model selection.
+	router := llm.NewModelRouter(llm.DefaultRoutingConfig(), logger)
 	orchestrator := agent.NewOrchestrator(client, matrix, reg, logger)
+	orchestrator.WithModelRouter(router)
 
 	ctxMgr := compact.NewContextManager(compact.DefaultCompactConfig(), client, logger)
 	budget := compact.NewTokenBudget(compact.DefaultBudgetConfig())
@@ -259,12 +278,14 @@ func buildEngine(client llm.LLMClient, matrix *strategy.StrategyMatrix, logger *
 	engine := agent.NewReviewEngine(client, matrix, reg.ExportDefinitions(), executor, logger, hookChain)
 	engine.WithPhase3(ctxMgr, budget, reviewStore, verifier)
 	engine.WithOrchestrator(orchestrator)
+	engine.WithModelRouter(router)
 	engine.WithPhase5(trainingPool, appealStore, reputationMgr, versionMgr)
 
 	stores := &engineStores{
 		reviewStore: reviewStore, trainingPool: trainingPool,
 		appealStore: appealStore, reputationMgr: reputationMgr,
 		versionMgr: versionMgr, budget: budget, auditHook: auditHook,
+		router: router,
 	}
 	return engine, stores
 }

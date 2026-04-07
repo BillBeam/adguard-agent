@@ -46,6 +46,10 @@ type LoopConfig struct {
 	PreToolHooks  []PreToolHook
 	PostToolHooks []PostToolHook
 	StopHooks     []StopHook
+
+	// Model override: if non-empty, overrides the LLM client's default model.
+	// Set by ModelRouter based on pipeline and agent role.
+	Model string
 }
 
 // WithContextManagement attaches Context Manager and Token Budget to the config.

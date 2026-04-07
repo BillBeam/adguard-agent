@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"time"
 
+	"errors"
+
 	"github.com/BillBeam/adguard-agent/internal/compact"
 	"github.com/BillBeam/adguard-agent/internal/llm"
 	"github.com/BillBeam/adguard-agent/internal/store"
@@ -44,6 +46,9 @@ type ReviewEngine struct {
 	appealStore    *store.AppealStore        // nil = no appeal support
 	reputationMgr  *store.ReputationManager  // nil = no reputation tracking
 	versionManager *strategy.VersionManager  // nil = no version routing
+
+	// Model routing: per-pipeline and per-role model selection.
+	router *llm.ModelRouter // nil = use LLM client default model
 }
 
 // NewReviewEngine creates a review engine with the given tools.
@@ -103,6 +108,14 @@ func (e *ReviewEngine) WithPhase5(
 	e.appealStore = as
 	e.reputationMgr = rm
 	e.versionManager = vm
+	return e
+}
+
+// WithModelRouter attaches model routing for per-pipeline/per-role model selection.
+// When set, each review uses the model determined by the router based on the
+// pipeline (fast/standard/comprehensive) and agent role (content/policy/region/adjudicator).
+func (e *ReviewEngine) WithModelRouter(router *llm.ModelRouter) *ReviewEngine {
+	e.router = router
 	return e
 }
 
@@ -241,6 +254,11 @@ func (e *ReviewEngine) Review(ctx context.Context, ad *types.AdContent) (*LoopRe
 		config.WithContextManagement(e.contextManager, e.tokenBudget)
 	}
 
+	// Model routing: select model based on pipeline.
+	if e.router != nil {
+		config.Model = e.router.RouteModel(plan.Pipeline, "")
+	}
+
 	// 3. Initialize state.
 	state := NewState(ad)
 	state.Messages = buildInitialMessages(config.SystemPrompt)
@@ -262,6 +280,25 @@ func (e *ReviewEngine) Review(ctx context.Context, ad *types.AdContent) (*LoopRe
 
 	// 5. Execute agentic loop.
 	result := Run(ctx, e.client, config, state, events, e.logger)
+
+	// 529 fallback: if consecutive overload errors triggered model downgrade, retry with fallback.
+	if result.Error != nil {
+		var fallbackErr *llm.FallbackTriggeredError
+		if errors.As(result.Error, &fallbackErr) && e.router != nil {
+			if fb, ok := e.router.GetFallback(config.Model); ok {
+				e.logger.Warn("529 model fallback triggered",
+					slog.String("original", config.Model),
+					slog.String("fallback", fb),
+					slog.Int("consecutive_529", fallbackErr.Consecutive),
+				)
+				config.Model = fb
+				state = NewState(ad)
+				state.Messages = buildInitialMessages(config.SystemPrompt)
+				result = Run(ctx, e.client, config, state, events, e.logger)
+			}
+		}
+	}
+
 	close(events)
 	<-done // wait for event consumer to finish
 

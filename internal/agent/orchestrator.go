@@ -32,6 +32,7 @@ type Orchestrator struct {
 	client   llm.LLMClient
 	matrix   *strategy.StrategyMatrix
 	registry *tool.Registry
+	router   *llm.ModelRouter // nil = use client default
 	logger   *slog.Logger
 }
 
@@ -48,6 +49,12 @@ func NewOrchestrator(
 		registry: registry,
 		logger:   logger,
 	}
+}
+
+// WithModelRouter attaches model routing for per-agent model selection.
+func (o *Orchestrator) WithModelRouter(router *llm.ModelRouter) *Orchestrator {
+	o.router = router
+	return o
 }
 
 // AgentResult captures one specialist agent's output.
@@ -170,6 +177,11 @@ func (o *Orchestrator) runSingleAgent(
 		MaxRecoveryAttempts: MaxRecoveryAttempts,
 	}
 
+	// Model routing: select model based on pipeline and agent role.
+	if o.router != nil {
+		config.Model = o.router.RouteModel(plan.Pipeline, string(spec.Role))
+	}
+
 	// Build isolated state — each agent starts with fresh messages.
 	state := NewState(ad)
 	state.Messages = buildInitialMessages(config.SystemPrompt)
@@ -234,6 +246,11 @@ func (o *Orchestrator) runAdjudicator(
 		DefaultMaxTokens:    DefaultMaxOutputTokens,
 		EscalatedMaxTokens:  EscalatedMaxOutputTokens,
 		MaxRecoveryAttempts: MaxRecoveryAttempts,
+	}
+
+	// Model routing: adjudicator uses the strongest reasoning model.
+	if o.router != nil {
+		config.Model = o.router.RouteModel(plan.Pipeline, "adjudicator")
 	}
 
 	state := NewState(ad)

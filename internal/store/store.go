@@ -62,22 +62,60 @@ type ReviewStats struct {
 	OverrideCount     int                              `json:"override_count"`
 }
 
-// ReviewStore manages review records in memory.
+// ReviewStore manages review records in memory with optional JSONL persistence.
 // Thread-safe via sync.RWMutex.
 type ReviewStore struct {
 	mu           sync.RWMutex
 	records      map[string]*ReviewRecord // key = ad_id
 	byAdvertiser map[string][]string      // advertiser_id → []ad_id (secondary index)
+	jsonl        *JSONLWriter             // nil = no persistence (backward compatible)
 	logger       *slog.Logger
 }
 
-// NewReviewStore creates an empty in-memory review store.
-func NewReviewStore(logger *slog.Logger) *ReviewStore {
-	return &ReviewStore{
+// NewReviewStore creates a review store. If jsonlPath is non-empty, enables
+// JSONL persistence and recovers existing records from the file on startup.
+// Pass "" for jsonlPath to use pure in-memory mode (e.g., mock tests).
+func NewReviewStore(logger *slog.Logger, jsonlPath string) *ReviewStore {
+	rs := &ReviewStore{
 		records:      make(map[string]*ReviewRecord),
 		byAdvertiser: make(map[string][]string),
 		logger:       logger,
 	}
+
+	if jsonlPath == "" {
+		return rs
+	}
+
+	// Recover existing records from JSONL.
+	records, skipped, err := ReadJSONL[ReviewRecord](jsonlPath)
+	if err != nil {
+		logger.Error("failed to read review JSONL", slog.String("path", jsonlPath), slog.String("error", err.Error()))
+	}
+	for i := range records {
+		r := &records[i]
+		rs.records[r.AdID] = r
+		// Rebuild advertiser index.
+		advID := r.AdvertiserID
+		rs.byAdvertiser[advID] = append(rs.byAdvertiser[advID], r.AdID)
+	}
+	if len(records) > 0 || skipped > 0 {
+		logger.Info("restored reviews from JSONL",
+			slog.String("path", jsonlPath),
+			slog.Int("count", len(records)),
+			slog.Int("skipped", skipped),
+		)
+	}
+
+	// Open writer for new records.
+	w, err := NewJSONLWriter(jsonlPath, logger)
+	if err != nil {
+		logger.Error("failed to open review JSONL writer", slog.String("path", jsonlPath), slog.String("error", err.Error()))
+		return rs // degrade gracefully: in-memory only
+	}
+	w.SetCount(len(records))
+	rs.jsonl = w
+
+	return rs
 }
 
 // Store inserts or updates a review record.
@@ -93,10 +131,15 @@ func (rs *ReviewStore) Store(record *ReviewRecord) {
 	existing := rs.byAdvertiser[advID]
 	for _, id := range existing {
 		if id == adID {
-			return
+			goto persist
 		}
 	}
 	rs.byAdvertiser[advID] = append(existing, adID)
+
+persist:
+	if rs.jsonl != nil {
+		rs.jsonl.Append(record)
+	}
 }
 
 // Get retrieves a single record by ad_id.
@@ -178,6 +221,34 @@ func (rs *ReviewStore) UpdateVerification(adID string, status VerificationStatus
 	r.VerifiedDecision = decision
 	r.VerifiedAt = time.Now()
 	r.VerifyReasoning = reasoning
+
+	// Persist the updated record.
+	if rs.jsonl != nil {
+		rs.jsonl.Append(r)
+	}
+}
+
+// Flush ensures all JSONL data is written to disk. No-op if persistence is disabled.
+func (rs *ReviewStore) Flush() {
+	if rs.jsonl != nil {
+		rs.jsonl.Flush()
+	}
+}
+
+// JSONLCount returns the number of persisted records, or 0 if persistence is disabled.
+func (rs *ReviewStore) JSONLCount() int {
+	if rs.jsonl == nil {
+		return 0
+	}
+	return rs.jsonl.Count()
+}
+
+// JSONLPath returns the JSONL file path, or "" if persistence is disabled.
+func (rs *ReviewStore) JSONLPath() string {
+	if rs.jsonl == nil {
+		return ""
+	}
+	return rs.jsonl.Path()
 }
 
 // SetVersionID stamps a record with the strategy version used for review.

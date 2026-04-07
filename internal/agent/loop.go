@@ -354,11 +354,15 @@ func buildRequest(config *LoopConfig, state *State) types.ChatCompletionRequest 
 	if state.MaxTokensOverride != nil {
 		maxTokens = *state.MaxTokensOverride
 	}
-	return types.ChatCompletionRequest{
+	req := types.ChatCompletionRequest{
 		Messages:  state.Messages,
 		Tools:     config.Tools,
 		MaxTokens: &maxTokens,
 	}
+	if config.Model != "" {
+		req.Model = config.Model
+	}
+	return req
 }
 
 // buildToolErrorMessages creates error tool_result messages for failed tool calls.

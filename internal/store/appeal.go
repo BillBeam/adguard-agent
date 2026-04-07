@@ -57,23 +57,53 @@ type AppealStats struct {
 	ByStatus  map[AppealStatus]int      `json:"by_status"`
 }
 
-// AppealStore manages appeal records in memory. Thread-safe.
+// AppealStore manages appeal records in memory with optional JSONL persistence. Thread-safe.
 type AppealStore struct {
 	mu          sync.RWMutex
 	appeals     map[string]*Appeal // key = appeal_id
 	byAdID      map[string]string  // ad_id → appeal_id (one-per-ad)
 	reputation  *ReputationManager // linked for auto-update on resolve
+	jsonl       *JSONLWriter       // nil = no persistence
 	logger      *slog.Logger
 }
 
-// NewAppealStore creates an empty appeal store.
-func NewAppealStore(logger *slog.Logger, rm *ReputationManager) *AppealStore {
-	return &AppealStore{
+// NewAppealStore creates an appeal store. If jsonlPath is non-empty, enables
+// JSONL persistence and recovers existing appeals from the file on startup.
+func NewAppealStore(logger *slog.Logger, rm *ReputationManager, jsonlPath string) *AppealStore {
+	as := &AppealStore{
 		appeals:    make(map[string]*Appeal),
 		byAdID:     make(map[string]string),
 		reputation: rm,
 		logger:     logger,
 	}
+
+	if jsonlPath == "" {
+		return as
+	}
+
+	// Recover existing appeals from JSONL.
+	appeals, skipped, err := ReadJSONL[Appeal](jsonlPath)
+	if err != nil {
+		logger.Error("failed to read appeal JSONL", slog.String("error", err.Error()))
+	}
+	for i := range appeals {
+		a := &appeals[i]
+		as.appeals[a.AppealID] = a
+		as.byAdID[a.AdID] = a.AppealID
+	}
+	if len(appeals) > 0 || skipped > 0 {
+		logger.Info("restored appeals from JSONL",
+			slog.Int("count", len(appeals)), slog.Int("skipped", skipped))
+	}
+
+	w, err := NewJSONLWriter(jsonlPath, logger)
+	if err != nil {
+		logger.Error("failed to open appeal JSONL writer", slog.String("error", err.Error()))
+		return as
+	}
+	w.SetCount(len(appeals))
+	as.jsonl = w
+	return as
 }
 
 // Submit creates a new appeal. Returns error if the ad already has an appeal.
@@ -96,6 +126,11 @@ func (as *AppealStore) Submit(adID, advertiserID, reason string) (*Appeal, error
 
 	as.appeals[appeal.AppealID] = appeal
 	as.byAdID[adID] = appeal.AppealID
+
+	if as.jsonl != nil {
+		as.jsonl.Append(appeal)
+	}
+
 	as.logger.Info("appeal submitted",
 		slog.String("appeal_id", appeal.AppealID),
 		slog.String("ad_id", adID),
@@ -156,6 +191,10 @@ func (as *AppealStore) Resolve(appealID string, outcome AppealOutcome, reasoning
 	a.Reasoning = reasoning
 	a.ResolvedAt = time.Now()
 
+	if as.jsonl != nil {
+		as.jsonl.Append(a)
+	}
+
 	as.logger.Info("appeal resolved",
 		slog.String("appeal_id", appealID),
 		slog.String("outcome", string(outcome)),
@@ -167,6 +206,13 @@ func (as *AppealStore) Resolve(appealID string, outcome AppealOutcome, reasoning
 	}
 
 	return nil
+}
+
+// Flush ensures all JSONL data is written to disk. No-op if persistence is disabled.
+func (as *AppealStore) Flush() {
+	if as.jsonl != nil {
+		as.jsonl.Flush()
+	}
 }
 
 // QueryByAdvertiser returns all appeals for a given advertiser.

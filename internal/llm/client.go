@@ -70,7 +70,7 @@ func (c *httpClient) ChatCompletion(ctx context.Context, req types.ChatCompletio
 	}
 	req.Stream = false
 
-	return withRetry(ctx, c.logger, c.config.MaxRetries, func(ctx context.Context, attempt int) (*types.ChatCompletionResponse, error) {
+	return withRetry(ctx, c.logger, RetryOptions{MaxRetries: c.config.MaxRetries}, func(ctx context.Context, attempt int) (*types.ChatCompletionResponse, error) {
 		resp, err := c.doRequest(ctx, req)
 		if err != nil {
 			return nil, err

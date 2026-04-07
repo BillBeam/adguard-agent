@@ -7,7 +7,7 @@ import (
 )
 
 func TestTrainingPool_Add(t *testing.T) {
-	tp := NewTrainingPool(testLogger())
+	tp := NewTrainingPool(testLogger(), "")
 	tp.Add(&TrainingRecord{AdID: "ad_001", Source: SourceReview, Region: "US"})
 	if tp.Len() != 1 {
 		t.Errorf("expected 1 record, got %d", tp.Len())
@@ -15,7 +15,7 @@ func TestTrainingPool_Add(t *testing.T) {
 }
 
 func TestTrainingPool_DeduplicateByAdIDAndSource(t *testing.T) {
-	tp := NewTrainingPool(testLogger())
+	tp := NewTrainingPool(testLogger(), "")
 	tp.Add(&TrainingRecord{AdID: "ad_001", Source: SourceReview})
 	tp.Add(&TrainingRecord{AdID: "ad_001", Source: SourceReview}) // duplicate
 	tp.Add(&TrainingRecord{AdID: "ad_001", Source: SourceAppealOverturn}) // different source
@@ -26,7 +26,7 @@ func TestTrainingPool_DeduplicateByAdIDAndSource(t *testing.T) {
 }
 
 func TestTrainingPool_QueryBySource(t *testing.T) {
-	tp := NewTrainingPool(testLogger())
+	tp := NewTrainingPool(testLogger(), "")
 	tp.Add(&TrainingRecord{AdID: "ad_001", Source: SourceReview, Region: "US"})
 	tp.Add(&TrainingRecord{AdID: "ad_002", Source: SourceVerificationOverride, Region: "EU"})
 	tp.Add(&TrainingRecord{AdID: "ad_003", Source: SourceReview, Region: "US"})
@@ -39,7 +39,7 @@ func TestTrainingPool_QueryBySource(t *testing.T) {
 }
 
 func TestTrainingPool_QueryByRegion(t *testing.T) {
-	tp := NewTrainingPool(testLogger())
+	tp := NewTrainingPool(testLogger(), "")
 	tp.Add(&TrainingRecord{AdID: "ad_001", Source: SourceReview, Region: "US"})
 	tp.Add(&TrainingRecord{AdID: "ad_002", Source: SourceReview, Region: "EU"})
 
@@ -51,7 +51,7 @@ func TestTrainingPool_QueryByRegion(t *testing.T) {
 }
 
 func TestTrainingPool_CompositeFilter(t *testing.T) {
-	tp := NewTrainingPool(testLogger())
+	tp := NewTrainingPool(testLogger(), "")
 	tp.Add(&TrainingRecord{AdID: "ad_001", Source: SourceReview, Region: "US", Category: "healthcare"})
 	tp.Add(&TrainingRecord{AdID: "ad_002", Source: SourceReview, Region: "US", Category: "ecommerce"})
 	tp.Add(&TrainingRecord{AdID: "ad_003", Source: SourceAppealOverturn, Region: "US", Category: "healthcare"})
@@ -65,7 +65,7 @@ func TestTrainingPool_CompositeFilter(t *testing.T) {
 }
 
 func TestTrainingPool_Export(t *testing.T) {
-	tp := NewTrainingPool(testLogger())
+	tp := NewTrainingPool(testLogger(), "")
 	tp.Add(&TrainingRecord{AdID: "ad_001", Source: SourceReview})
 	tp.Add(&TrainingRecord{AdID: "ad_002", Source: SourceAppealOverturn})
 
@@ -76,7 +76,7 @@ func TestTrainingPool_Export(t *testing.T) {
 }
 
 func TestTrainingPool_Stats(t *testing.T) {
-	tp := NewTrainingPool(testLogger())
+	tp := NewTrainingPool(testLogger(), "")
 	tp.Add(&TrainingRecord{AdID: "ad_001", Source: SourceReview, Region: "US"})
 	tp.Add(&TrainingRecord{AdID: "ad_002", Source: SourceVerificationOverride, Region: "EU"})
 	tp.Add(&TrainingRecord{AdID: "ad_003", Source: SourceAppealOverturn, Region: "US"})
@@ -94,7 +94,7 @@ func TestTrainingPool_Stats(t *testing.T) {
 }
 
 func TestTrainingPool_PostReviewHook_SamplesHighConfidence(t *testing.T) {
-	tp := NewTrainingPool(testLogger())
+	tp := NewTrainingPool(testLogger(), "")
 	tp.PostReview(types.ReviewResult{AdID: "ad_high", Decision: types.DecisionRejected, Confidence: 0.95},
 		"adv", "US", "healthcare", "standard")
 
@@ -104,7 +104,7 @@ func TestTrainingPool_PostReviewHook_SamplesHighConfidence(t *testing.T) {
 }
 
 func TestTrainingPool_PostReviewHook_SkipsLowConfidence(t *testing.T) {
-	tp := NewTrainingPool(testLogger())
+	tp := NewTrainingPool(testLogger(), "")
 	tp.PostReview(types.ReviewResult{AdID: "ad_low", Decision: types.DecisionRejected, Confidence: 0.7},
 		"adv", "US", "healthcare", "standard")
 
@@ -114,7 +114,7 @@ func TestTrainingPool_PostReviewHook_SkipsLowConfidence(t *testing.T) {
 }
 
 func TestTrainingPool_PostReviewHook_SkipsManualReview(t *testing.T) {
-	tp := NewTrainingPool(testLogger())
+	tp := NewTrainingPool(testLogger(), "")
 	tp.PostReview(types.ReviewResult{AdID: "ad_mr", Decision: types.DecisionManualReview, Confidence: 0.95},
 		"adv", "US", "healthcare", "standard")
 

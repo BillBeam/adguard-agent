@@ -6,7 +6,7 @@ import (
 
 func TestAppealStore_Submit(t *testing.T) {
 	rm := NewReputationManager(testLogger())
-	as := NewAppealStore(testLogger(), rm)
+	as := NewAppealStore(testLogger(), rm, "")
 
 	appeal, err := as.Submit("ad_001", "adv_001", "We believe this ad complies")
 	if err != nil {
@@ -22,7 +22,7 @@ func TestAppealStore_Submit(t *testing.T) {
 
 func TestAppealStore_DuplicateAppealBlocked(t *testing.T) {
 	rm := NewReputationManager(testLogger())
-	as := NewAppealStore(testLogger(), rm)
+	as := NewAppealStore(testLogger(), rm, "")
 
 	as.Submit("ad_001", "adv_001", "first appeal")
 	_, err := as.Submit("ad_001", "adv_001", "second appeal")
@@ -33,7 +33,7 @@ func TestAppealStore_DuplicateAppealBlocked(t *testing.T) {
 
 func TestAppealStore_StatusTransitions(t *testing.T) {
 	rm := NewReputationManager(testLogger())
-	as := NewAppealStore(testLogger(), rm)
+	as := NewAppealStore(testLogger(), rm, "")
 
 	appeal, _ := as.Submit("ad_001", "adv_001", "reason")
 
@@ -56,7 +56,7 @@ func TestAppealStore_StatusTransitions(t *testing.T) {
 
 func TestAppealStore_ResolveOverturned(t *testing.T) {
 	rm := NewReputationManager(testLogger())
-	as := NewAppealStore(testLogger(), rm)
+	as := NewAppealStore(testLogger(), rm, "")
 
 	appeal, _ := as.Submit("ad_001", "adv_001", "reason")
 	as.SetReviewing(appeal.AppealID)
@@ -70,7 +70,7 @@ func TestAppealStore_ResolveOverturned(t *testing.T) {
 
 func TestAppealStore_GetByAdID(t *testing.T) {
 	rm := NewReputationManager(testLogger())
-	as := NewAppealStore(testLogger(), rm)
+	as := NewAppealStore(testLogger(), rm, "")
 
 	as.Submit("ad_001", "adv_001", "reason")
 
@@ -87,7 +87,7 @@ func TestAppealStore_GetByAdID(t *testing.T) {
 
 func TestAppealStore_Stats(t *testing.T) {
 	rm := NewReputationManager(testLogger())
-	as := NewAppealStore(testLogger(), rm)
+	as := NewAppealStore(testLogger(), rm, "")
 
 	a1, _ := as.Submit("ad_001", "adv_001", "reason")
 	as.Resolve(a1.AppealID, AppealUpheld, "confirmed")

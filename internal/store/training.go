@@ -57,21 +57,54 @@ type TrainingStats struct {
 	ByRegion map[string]int         `json:"by_region"`
 }
 
-// TrainingPool manages training data records in memory.
+// TrainingPool manages training data records in memory with optional JSONL persistence.
 type TrainingPool struct {
 	mu      sync.RWMutex
 	records []*TrainingRecord
 	seen    map[string]bool // "adID:source" dedup key
+	jsonl   *JSONLWriter    // nil = no persistence
 	logger  *slog.Logger
 }
 
-// NewTrainingPool creates an empty training pool.
-func NewTrainingPool(logger *slog.Logger) *TrainingPool {
-	return &TrainingPool{
+// NewTrainingPool creates a training pool. If jsonlPath is non-empty, enables
+// JSONL persistence and recovers existing records on startup.
+func NewTrainingPool(logger *slog.Logger, jsonlPath string) *TrainingPool {
+	tp := &TrainingPool{
 		records: make([]*TrainingRecord, 0, 64),
 		seen:    make(map[string]bool),
 		logger:  logger,
 	}
+
+	if jsonlPath == "" {
+		return tp
+	}
+
+	records, skipped, err := ReadJSONL[TrainingRecord](jsonlPath)
+	if err != nil {
+		logger.Error("failed to read training JSONL", slog.String("error", err.Error()))
+	}
+	for i := range records {
+		r := &records[i]
+		key := fmt.Sprintf("%s:%s", r.AdID, r.Source)
+		if tp.seen[key] {
+			continue
+		}
+		tp.seen[key] = true
+		tp.records = append(tp.records, r)
+	}
+	if len(records) > 0 || skipped > 0 {
+		logger.Info("restored training records from JSONL",
+			slog.Int("count", len(tp.records)), slog.Int("skipped", skipped))
+	}
+
+	w, err := NewJSONLWriter(jsonlPath, logger)
+	if err != nil {
+		logger.Error("failed to open training JSONL writer", slog.String("error", err.Error()))
+		return tp
+	}
+	w.SetCount(len(tp.records))
+	tp.jsonl = w
+	return tp
 }
 
 // Add inserts a training record. Deduplicates by adID+source.
@@ -92,10 +125,21 @@ func (tp *TrainingPool) Add(record *TrainingRecord) {
 	tp.seen[key] = true
 	tp.records = append(tp.records, record)
 
+	if tp.jsonl != nil {
+		tp.jsonl.Append(record)
+	}
+
 	tp.logger.Debug("training record added",
 		slog.String("ad_id", record.AdID),
 		slog.String("source", string(record.Source)),
 	)
+}
+
+// Flush ensures all JSONL data is written to disk. No-op if persistence is disabled.
+func (tp *TrainingPool) Flush() {
+	if tp.jsonl != nil {
+		tp.jsonl.Flush()
+	}
 }
 
 // Query returns records matching the filter.
