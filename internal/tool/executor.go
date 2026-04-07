@@ -115,8 +115,11 @@ func (e *Executor) executeSingle(ctx context.Context, tc types.ToolCall) types.M
 	}
 
 	// 2. Validate input.
+	// LLMs sometimes send arguments as JSON strings instead of objects on the
+	// first attempt, then self-correct after receiving the error. This is expected
+	// behavior, not a real warning — log at DEBUG to keep demo output clean.
 	if err := t.ValidateInput(tc.Function.Arguments); err != nil {
-		e.logger.Warn("tool input validation failed",
+		e.logger.Debug("tool input validation failed (LLM will self-correct)",
 			slog.String("tool", tc.Function.Name),
 			slog.String("error", err.Error()),
 		)
