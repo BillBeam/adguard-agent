@@ -262,6 +262,10 @@ func (e *ReviewEngine) Review(ctx context.Context, ad *types.AdContent) (*LoopRe
 		}
 	}
 
+	// Streaming: dispatch tools during LLM response for lower latency.
+	// callAPIStreaming has built-in non-streaming fallback on errors.
+	config.EnableStreaming = true
+
 	// 3. Initialize state.
 	state := NewState(ad)
 	state.Messages = buildInitialMessages(config.SystemPrompt)

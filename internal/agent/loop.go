@@ -526,10 +526,14 @@ func callAPIStreaming(
 	req.Stream = true
 
 	stream, err := client.StreamChatCompletion(ctx, req)
-	if err != nil {
-		// Streaming connection failed → fall back to non-streaming.
-		logger.Warn("streaming connection failed, falling back to non-streaming",
-			slog.String("error", err.Error()))
+	if err != nil || stream == nil {
+		// Streaming connection failed or unsupported → fall back to non-streaming.
+		if err != nil {
+			logger.Warn("streaming connection failed, falling back to non-streaming",
+				slog.String("error", err.Error()))
+		} else {
+			logger.Warn("streaming returned nil reader, falling back to non-streaming")
+		}
 		req.Stream = false
 		resp, err := client.ChatCompletion(ctx, req)
 		return resp, nil, err

@@ -185,6 +185,8 @@ func (o *Orchestrator) runSingleAgent(
 		}
 	}
 
+	config.EnableStreaming = true
+
 	// Build isolated state — each agent starts with fresh messages.
 	state := NewState(ad)
 	state.Messages = buildInitialMessages(config.SystemPrompt)
@@ -258,6 +260,8 @@ func (o *Orchestrator) runAdjudicator(
 			config.FallbackModel = fb
 		}
 	}
+
+	config.EnableStreaming = true
 
 	state := NewState(ad)
 	state.Messages = []types.Message{
