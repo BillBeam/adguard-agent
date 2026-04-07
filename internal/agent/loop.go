@@ -161,10 +161,14 @@ func Run(
 		case "tool_calls":
 			if len(streamToolResults) > 0 {
 				// Streaming mode: tools already executed during stream.
-				// Run PostToolHooks and append results.
-				for i, tr := range streamToolResults {
-					if i < len(assistantMsg.ToolCalls) {
-						tc := assistantMsg.ToolCalls[i]
+				// Build ToolCallID→ToolCall lookup for reliable matching
+				// (index alignment between streamToolResults and ToolCalls not guaranteed).
+				tcByID := make(map[string]types.ToolCall, len(assistantMsg.ToolCalls))
+				for _, tc := range assistantMsg.ToolCalls {
+					tcByID[tc.ID] = tc
+				}
+				for _, tr := range streamToolResults {
+					if tc, ok := tcByID[tr.ToolCallID]; ok {
 						emitEvent(events, EventToolCallStarted, state, tc.Function.Name)
 						state.AppendTrace(fmt.Sprintf("tool_call:%s", tc.Function.Name))
 						if len(config.PostToolHooks) > 0 {
@@ -292,7 +296,7 @@ func handleToolCalls(ctx context.Context, state *State, config *LoopConfig, msg 
 
 	state.TurnCount++
 	state.Transition(StateAnalyzing, TransitionNextTurn,
-		fmt.Sprintf("turn %d, %d tools executed", state.TurnCount, len(msg.ToolCalls)))
+		fmt.Sprintf("turn %d, %d tools executed", state.TurnCount, len(allowedCalls)))
 	emitEvent(events, EventTurnStarted, state, "")
 	return nil
 }
@@ -542,7 +546,7 @@ func callAPIStreaming(
 	defer stream.Close()
 	emitEvent(events, EventStreamStarted, state, "")
 
-	executor := NewStreamingToolExecutor(config.ToolExecutor, nil, logger)
+	executor := NewStreamingToolExecutor(ctx, config.ToolExecutor, nil, logger)
 	accumulator := NewStreamAccumulator(executor, logger)
 
 	prevToolCount := 0

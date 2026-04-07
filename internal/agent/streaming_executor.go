@@ -50,6 +50,7 @@ type ConcurrencyChecker interface {
 // StreamingToolExecutor manages tool execution during LLM streaming.
 type StreamingToolExecutor struct {
 	mu               sync.Mutex
+	ctx              context.Context    // parent context for cancellation propagation
 	tools            []*trackedTool
 	executor         ToolExecutor
 	concurrencyCheck ConcurrencyChecker // nil = assume all concurrent-safe
@@ -57,8 +58,11 @@ type StreamingToolExecutor struct {
 }
 
 // NewStreamingToolExecutor creates an executor for streaming tool dispatch.
-func NewStreamingToolExecutor(executor ToolExecutor, cc ConcurrencyChecker, logger *slog.Logger) *StreamingToolExecutor {
+// The ctx parameter is propagated to all tool executions — when cancelled,
+// in-flight tools are interrupted instead of leaking goroutines.
+func NewStreamingToolExecutor(ctx context.Context, executor ToolExecutor, cc ConcurrencyChecker, logger *slog.Logger) *StreamingToolExecutor {
 	return &StreamingToolExecutor{
+		ctx:              ctx,
 		executor:         executor,
 		concurrencyCheck: cc,
 		logger:           logger,
@@ -151,7 +155,7 @@ func (s *StreamingToolExecutor) executeTool(t *trackedTool) {
 		},
 	}
 
-	results, err := s.executor.Execute(context.Background(), []types.ToolCall{tc})
+	results, err := s.executor.Execute(s.ctx, []types.ToolCall{tc})
 
 	s.mu.Lock()
 	defer s.mu.Unlock()

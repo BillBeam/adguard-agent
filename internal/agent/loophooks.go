@@ -136,7 +136,7 @@ func (h *AuditHook) PostToolExec(toolName string, result string, err error) {
 	h.entries = append(h.entries, AuditEntry{
 		ToolName:  toolName,
 		Phase:     "post",
-		HasError:  err != nil || strings.Contains(result, `"error"`),
+		HasError:  err != nil || strings.HasPrefix(strings.TrimSpace(result), `{"error":`),
 		Timestamp: time.Now(),
 	})
 }

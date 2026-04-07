@@ -147,8 +147,17 @@ func (b *ResultBudget) persistAndPreview(toolName, toolCallID, result string) st
 		return truncateFallback(result, b.PerToolLimit)
 	}
 	if err == nil {
-		f.WriteString(result)
-		f.Close()
+		_, writeErr := f.WriteString(result)
+		closeErr := f.Close()
+		if writeErr != nil || closeErr != nil {
+			b.log().Error("failed to write tool result to disk",
+				slog.String("path", path),
+				slog.Any("write_error", writeErr),
+				slog.Any("close_error", closeErr))
+			// File may be partial — remove it so retry doesn't skip via O_EXCL.
+			os.Remove(path)
+			return truncateFallback(result, b.PerToolLimit)
+		}
 	}
 
 	preview := generatePreview(result, b.PreviewSize)
@@ -204,11 +213,19 @@ func generatePreview(content string, maxSize int) string {
 }
 
 // truncateFallback is the last-resort truncation when disk persistence fails.
+// Respects UTF-8 boundaries to avoid producing invalid strings.
 func truncateFallback(result string, maxSize int) string {
 	suffix := "\n...[truncated, disk persist failed]"
 	cutAt := maxSize - len(suffix)
 	if cutAt < 0 {
 		cutAt = 0
+	}
+	if cutAt > len(result) {
+		cutAt = len(result)
+	}
+	// Walk back to a valid UTF-8 boundary (avoid splitting multi-byte chars).
+	for cutAt > 0 && result[cutAt-1]&0xC0 == 0x80 {
+		cutAt--
 	}
 	return result[:cutAt] + suffix
 }

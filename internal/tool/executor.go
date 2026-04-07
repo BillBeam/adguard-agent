@@ -71,7 +71,7 @@ func (e *Executor) Execute(ctx context.Context, toolCalls []types.ToolCall) ([]t
 		}
 	}
 	// Layer 2: per-round aggregate budget check.
-	if e.budget != nil && len(results) > 1 {
+	if e.budget != nil && len(results) > 0 {
 		roundResults := make([]RoundResult, len(results))
 		for i, r := range results {
 			roundResults[i] = RoundResult{

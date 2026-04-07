@@ -117,7 +117,7 @@ func TestAccumulator_SingleToolCall(t *testing.T) {
 func TestAccumulator_MultipleToolCalls(t *testing.T) {
 	// Use a streaming executor to verify AddTool was called correctly.
 	testExec := &trackingExecutor{}
-	se := NewStreamingToolExecutor(testExec, nil, testLogger())
+	se := NewStreamingToolExecutor(context.Background(), testExec, nil, testLogger())
 	acc := NewStreamAccumulator(se, testLogger())
 
 	// First tool call (index 0).
@@ -170,7 +170,7 @@ func TestAccumulator_MultipleToolCalls(t *testing.T) {
 
 func TestAccumulator_FinishReasonSubmitsLast(t *testing.T) {
 	testExec := &trackingExecutor{}
-	se := NewStreamingToolExecutor(testExec, nil, testLogger())
+	se := NewStreamingToolExecutor(context.Background(), testExec, nil, testLogger())
 	acc := NewStreamAccumulator(se, testLogger())
 
 	// Single tool call.

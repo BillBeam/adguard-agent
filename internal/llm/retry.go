@@ -168,14 +168,17 @@ func retryDelay(attempt int, retryAfterSec string) time.Duration {
 
 	// Exponential backoff: base * 2^(attempt-1), capped at maxDelay.
 	base := float64(baseDelayMS) * math.Pow(2, float64(attempt-1))
-	if base > float64(maxDelayMS) {
-		base = float64(maxDelayMS)
-	}
 
 	// Jitter: add 0-25% of the base delay to prevent thundering herd.
 	jitter := rand.Float64() * 0.25 * base
 
-	return time.Duration(base+jitter) * time.Millisecond
+	// Cap the final delay (base + jitter) at maxDelay.
+	total := base + jitter
+	if total > float64(maxDelayMS) {
+		total = float64(maxDelayMS)
+	}
+
+	return time.Duration(total) * time.Millisecond
 }
 
 // shouldRetry determines if an error is retryable based on its type and status code.

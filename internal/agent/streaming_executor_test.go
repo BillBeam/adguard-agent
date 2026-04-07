@@ -11,7 +11,7 @@ import (
 
 func TestStreamingExecutor_SingleTool(t *testing.T) {
 	executor := mock.NewToolExecutor()
-	se := NewStreamingToolExecutor(executor, nil, testLogger())
+	se := NewStreamingToolExecutor(context.Background(), executor, nil, testLogger())
 
 	se.AddTool("call_001", "analyze_content", `{"headline":"test","body":"body","category":"healthcare"}`)
 
@@ -29,7 +29,7 @@ func TestStreamingExecutor_SingleTool(t *testing.T) {
 
 func TestStreamingExecutor_MultipleConcurrent(t *testing.T) {
 	executor := mock.NewToolExecutor()
-	se := NewStreamingToolExecutor(executor, nil, testLogger())
+	se := NewStreamingToolExecutor(context.Background(), executor, nil, testLogger())
 
 	// Add 3 tools — all concurrent-safe by default.
 	se.AddTool("c1", "analyze_content", `{"headline":"t1","body":"b1","category":"healthcare"}`)
@@ -60,7 +60,7 @@ func TestStreamingExecutor_NonConcurrentBlocks(t *testing.T) {
 	checker := &mockConcurrencyChecker{
 		nonConcurrent: map[string]bool{"analyze_content": true},
 	}
-	se := NewStreamingToolExecutor(executor, checker, testLogger())
+	se := NewStreamingToolExecutor(context.Background(), executor, checker, testLogger())
 
 	se.AddTool("c1", "analyze_content", `{"headline":"t1","body":"b1","category":"healthcare"}`)
 	se.AddTool("c2", "match_policies", `{"region":"US","category":"healthcare"}`)
@@ -77,7 +77,7 @@ func TestStreamingExecutor_NonConcurrentBlocks(t *testing.T) {
 
 func TestStreamingExecutor_OrderPreserved(t *testing.T) {
 	executor := mock.NewToolExecutor()
-	se := NewStreamingToolExecutor(executor, nil, testLogger())
+	se := NewStreamingToolExecutor(context.Background(), executor, nil, testLogger())
 
 	// Add tools in specific order.
 	for i := 0; i < 5; i++ {
@@ -99,7 +99,7 @@ func TestStreamingExecutor_OrderPreserved(t *testing.T) {
 
 func TestStreamingExecutor_ContextCancellation(t *testing.T) {
 	executor := mock.NewToolExecutor()
-	se := NewStreamingToolExecutor(executor, nil, testLogger())
+	se := NewStreamingToolExecutor(context.Background(), executor, nil, testLogger())
 
 	se.AddTool("c1", "analyze_content", `{"headline":"test","body":"body","category":"healthcare"}`)
 
