@@ -24,12 +24,20 @@ import (
 // the agentic loop's fail-closed error recovery in loop.go.
 type Executor struct {
 	registry *Registry
+	budget   *ResultBudget // nil = no budget control (backward compatible)
 	logger   *slog.Logger
 }
 
 // NewExecutor creates a tool executor backed by the given registry.
 func NewExecutor(registry *Registry, logger *slog.Logger) *Executor {
 	return &Executor{registry: registry, logger: logger}
+}
+
+// WithBudget attaches a ResultBudget for two-layer tool result size control.
+// Without a budget, the executor falls back to simple MaxResultSize truncation.
+func (e *Executor) WithBudget(b *ResultBudget) *Executor {
+	e.budget = b
+	return e
 }
 
 // Execute resolves and runs tool calls, returning tool_result messages.
@@ -62,6 +70,24 @@ func (e *Executor) Execute(ctx context.Context, toolCalls []types.ToolCall) ([]t
 			results[i] = e.executeSingle(ctx, tc)
 		}
 	}
+	// Layer 2: per-round aggregate budget check.
+	if e.budget != nil && len(results) > 1 {
+		roundResults := make([]RoundResult, len(results))
+		for i, r := range results {
+			roundResults[i] = RoundResult{
+				ToolCallID: toolCalls[i].ID,
+				ToolName:   toolCalls[i].Function.Name,
+				Content:    r.Content.String(),
+			}
+		}
+		processed := e.budget.ProcessRound(roundResults)
+		for i, p := range processed {
+			if p.Content != roundResults[i].Content {
+				results[i].Content = types.NewTextContent(p.Content)
+			}
+		}
+	}
+
 	return results, nil
 }
 
@@ -108,9 +134,14 @@ func (e *Executor) executeSingle(ctx context.Context, tc types.ToolCall) types.M
 		return toolErrorMessage(tc.ID, err.Error())
 	}
 
-	// 4. Truncate if exceeds MaxResultSize.
-	if maxSize := t.MaxResultSize(); maxSize > 0 && len(output) > maxSize {
-		output = output[:maxSize] + "\n...[truncated]"
+	// 4. Apply result size control.
+	if e.budget != nil {
+		// Layer 1: smart persist + preview via ResultBudget.
+		output = e.budget.ProcessResult(tc.Function.Name, tc.ID, output)
+	} else if maxSize := t.MaxResultSize(); maxSize > 0 && len(output) > maxSize {
+		// Fallback: simple truncation (no budget configured).
+		suffix := "\n...[truncated]"
+		output = output[:maxSize-len(suffix)] + suffix
 		e.logger.Warn("tool result truncated",
 			slog.String("tool", tc.Function.Name),
 			slog.Int("max_size", maxSize),

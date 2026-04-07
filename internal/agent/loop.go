@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"io"
+
 	"github.com/BillBeam/adguard-agent/internal/llm"
 	"github.com/BillBeam/adguard-agent/internal/types"
 )
@@ -90,8 +92,19 @@ func Run(
 		req := buildRequest(config, state)
 		emitEvent(events, EventAPICallStarted, state, "")
 
-		// 3. Call LLM API.
-		resp, err := client.ChatCompletion(ctx, req)
+		// 4. Call LLM API (streaming or non-streaming).
+		var (
+			resp              *types.ChatCompletionResponse
+			streamToolResults []types.Message // populated only in streaming mode
+			err               error
+		)
+
+		if config.EnableStreaming {
+			resp, streamToolResults, err = callAPIStreaming(ctx, client, config, state, events, logger)
+		} else {
+			resp, err = client.ChatCompletion(ctx, req)
+		}
+
 		if err != nil {
 			if isPromptTooLongError(err) {
 				// Phase 3: try reactive compact before giving up.
@@ -112,6 +125,7 @@ func Run(
 			state.Transition(StateError, TransitionModelError, err.Error())
 			return &LoopResult{ExitReason: ExitModelError, State: state, Error: err}
 		}
+		_ = streamToolResults // used below in tool_calls branch
 
 		// Phase 3: Token budget check.
 		if config.TokenBudget != nil && resp != nil && resp.Usage != nil {
@@ -145,8 +159,28 @@ func Run(
 			return handleStop(state, config, assistantMsg, events, logger)
 
 		case "tool_calls":
-			if err := handleToolCalls(ctx, state, config, assistantMsg, events, logger); err != nil {
-				// Tool execution infrastructure error (not individual tool failure).
+			if len(streamToolResults) > 0 {
+				// Streaming mode: tools already executed during stream.
+				// Run PostToolHooks and append results.
+				for i, tr := range streamToolResults {
+					if i < len(assistantMsg.ToolCalls) {
+						tc := assistantMsg.ToolCalls[i]
+						emitEvent(events, EventToolCallStarted, state, tc.Function.Name)
+						state.AppendTrace(fmt.Sprintf("tool_call:%s", tc.Function.Name))
+						if len(config.PostToolHooks) > 0 {
+							runPostToolHooks(config.PostToolHooks, tc.Function.Name, tr.Content.String(), nil, logger)
+						}
+						emitEvent(events, EventToolCallCompleted, state, tc.Function.Name)
+						state.AppendTrace(fmt.Sprintf("tool_result:%s", tc.Function.Name))
+					}
+					state.AppendMessage(tr)
+				}
+				state.TurnCount++
+				state.Transition(StateAnalyzing, TransitionNextTurn,
+					fmt.Sprintf("turn %d, %d tools (streamed)", state.TurnCount, len(streamToolResults)))
+				emitEvent(events, EventTurnStarted, state, "")
+			} else if err := handleToolCalls(ctx, state, config, assistantMsg, events, logger); err != nil {
+				// Non-streaming: original path.
 				state.Transition(StateError, TransitionModelError, err.Error())
 				return &LoopResult{ExitReason: ExitModelError, State: state, Error: err}
 			}
@@ -472,4 +506,62 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+// callAPIStreaming uses the streaming API path: SSE chunks are accumulated
+// by StreamAccumulator, and tool calls are dispatched to StreamingToolExecutor
+// as soon as their parameters are complete (not waiting for the full response).
+//
+// On streaming failure, falls back to non-streaming (watchdog fallback pattern).
+// Returns the assembled response + any tool results executed during streaming.
+func callAPIStreaming(
+	ctx context.Context,
+	client llm.LLMClient,
+	config *LoopConfig,
+	state *State,
+	events chan<- StreamEvent,
+	logger *slog.Logger,
+) (*types.ChatCompletionResponse, []types.Message, error) {
+	req := buildRequest(config, state)
+	req.Stream = true
+
+	stream, err := client.StreamChatCompletion(ctx, req)
+	if err != nil {
+		// Streaming connection failed → fall back to non-streaming.
+		logger.Warn("streaming connection failed, falling back to non-streaming",
+			slog.String("error", err.Error()))
+		req.Stream = false
+		resp, err := client.ChatCompletion(ctx, req)
+		return resp, nil, err
+	}
+	defer stream.Close()
+
+	executor := NewStreamingToolExecutor(config.ToolExecutor, nil, logger)
+	accumulator := NewStreamAccumulator(executor, logger)
+
+	for {
+		chunk, err := stream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			// Stream interrupted mid-response → fall back to non-streaming.
+			logger.Warn("stream interrupted, falling back to non-streaming",
+				slog.String("error", err.Error()))
+			req.Stream = false
+			resp, err := client.ChatCompletion(ctx, req)
+			return resp, nil, err
+		}
+		accumulator.ProcessChunk(chunk)
+	}
+	accumulator.Finalize()
+
+	// Collect results from tools that executed during streaming.
+	var toolResults []types.Message
+	if executor.ToolCount() > 0 {
+		toolResults = executor.CollectResults(ctx)
+	}
+
+	resp := accumulator.BuildResponse()
+	return resp, toolResults, nil
 }

@@ -30,11 +30,11 @@ AdGuard Agent 自动化全球市场的广告内容审核。系统应用地区特
 - **JSONL 持久化** — 追加写入 JSONL 文件实现 crash-safe 审核数据持久化。每个 Store（ReviewStore、AppealStore、TrainingPool）维护独立文件。启动时通过重放日志恢复已有记录；crash 导致的残行静默跳过。
 - **模型路由** — 基于 pipeline × agent role 的 2 级路由矩阵选择模型。xAI 模型分层：`fast→grok-4-1-fast-non-reasoning`（最便宜，低风险无需推理）、`standard→grok-4-1-fast-reasoning`（平衡）、`comprehensive→grok-4.20-multi-agent-0309`（多 Agent 优化）、`adjudicator→grok-4.20-0309-reasoning`（最强推理）。跨 Provider 降级链：`grok-4.20-*→grok-4-1-fast-reasoning→gpt-4o`。
 - **529 过载降级** — 追踪连续 529（过载）错误。3 次连续 529 后自动使用降级链中的备选模型重试。防止审核管线在 Provider 容量不足时停摆。
+- **工具结果预算** — 两层大小控制。Layer 1（单工具）：超过 32KB 的结果持久化到磁盘，生成 2KB 内联预览（智能换行截断 + HTML 信号提取：title、meta description、隐私政策检测）。Layer 2（单轮聚合）：聚合结果超过 200KB 时，从最大的开始迭代驱逐到磁盘。防止大型落地页 HTML（50-200KB）撑爆上下文窗口——落地页问题是广告审核最高频拒绝原因。
+- **流式工具执行** — StreamingToolExecutor 在 LLM 流式响应过程中调度工具，消除等待完整响应的延迟。Go channel + goroutine 作为 AsyncGenerator 的天然等价物。并发规则：concurrent-safe 工具并行执行，non-concurrent 工具阻塞队列。StreamAccumulator 处理 OpenAI SSE 分块，基于 index 累积 tool call 参数——JSON 碎片拼接（O(n)）而非增量解析（O(n²)）。连接失败或流中断时自动降级为非流式。
 
 ### 未来扩展
 
-- 流式工具执行（StreamingToolExecutor），LLM 响应过程中并发调度工具
-- Tool Result Budget，大型落地页 HTML 的磁盘降级处理
 - 策略 A/B 测试，canary 流量对比指标
 - 投放后定时回检，防御落地页对抗性替换
 - HTTP API 对外集成

@@ -32,9 +32,16 @@ type LandingPageChecker struct {
 // NewLandingPageChecker creates a LandingPageChecker tool.
 func NewLandingPageChecker(client llm.LLMClient, logger *slog.Logger) *LandingPageChecker {
 	return &LandingPageChecker{
-		BaseTool: ReviewToolBase(),
-		client:   client,
-		logger:   logger,
+		// 100KB limit: landing pages can be large (50-200KB HTML).
+		// The ResultBudget handles smart persist+preview; this limit is the
+		// upper bound before even budget-based handling kicks in.
+		BaseTool: BaseTool{
+			concurrencySafe: true,
+			readOnly:        true,
+			maxResultSize:   102400, // 100KB
+		},
+		client: client,
+		logger: logger,
 	}
 }
 
@@ -171,10 +178,17 @@ func (l *LandingPageChecker) Execute(ctx context.Context, args json.RawMessage) 
 		})
 	}
 
+	// Key signal summary: always inline even if full result is persisted to disk.
+	// These signals give the LLM enough context for judgment without the full HTML.
+	privacyFound := input.Description != "" && strings.Contains(strings.ToLower(input.Description), "privacy")
+
 	result, _ := json.Marshal(map[string]any{
-		"issues":       issues,
-		"issues_count": len(issues),
-		"url":          input.URL,
+		"issues":               issues,
+		"issues_count":         len(issues),
+		"url":                  input.URL,
+		"privacy_policy_found": privacyFound,
+		"is_accessible":        input.IsAccessible,
+		"is_mobile_optimized":  input.IsMobileOptimized,
 	})
 	return string(result), nil
 }

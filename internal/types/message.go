@@ -165,7 +165,10 @@ type Message struct {
 // --- Tool Calling ---
 
 // ToolCall represents a function call requested by the assistant.
+// In streaming responses, Index identifies which tool call a delta belongs to
+// (multiple tool calls can be in-flight simultaneously).
 type ToolCall struct {
+	Index    int              `json:"index,omitempty"` // streaming: tool call index within the message
 	ID       string           `json:"id"`
 	Type     string           `json:"type"` // always "function"
 	Function ToolCallFunction `json:"function"`

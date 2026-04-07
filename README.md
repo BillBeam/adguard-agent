@@ -30,11 +30,11 @@ AdGuard Agent automates ad content review across global markets. The system appl
 - **JSONL Persistence** — Append-only JSONL files for crash-safe review data persistence. Each store (ReviewStore, AppealStore, TrainingPool) maintains its own file. On startup, existing records are recovered by replaying the log; corrupted lines from mid-write crashes are silently skipped.
 - **Model Routing** — Per-pipeline and per-agent-role model selection via a 2-level routing matrix. xAI model tiering: `fast→grok-4-1-fast-non-reasoning` (cheapest, no reasoning for low-risk), `standard→grok-4-1-fast-reasoning` (balanced), `comprehensive→grok-4.20-multi-agent-0309` (multi-agent optimized), `adjudicator→grok-4.20-0309-reasoning` (strongest reasoning). Cross-provider fallback chain: `grok-4.20-*→grok-4-1-fast-reasoning→gpt-4o`.
 - **529 Overload Fallback** — Tracks consecutive 529 (overloaded) errors. After 3 consecutive 529s, automatically retries with the degraded model from the fallback chain. Prevents review pipeline stalling during provider capacity issues.
+- **Tool Result Budget** — Two-layer size control for tool results. Layer 1 (per-tool): results exceeding 32KB are persisted to disk with a 2KB inline preview featuring smart newline-boundary truncation and HTML signal extraction (title, meta description, privacy policy detection). Layer 2 (per-round): when aggregate results exceed 200KB, the largest are iteratively evicted to disk. Prevents context window explosion from large landing page HTML (50-200KB), the highest-frequency ad rejection reason.
+- **Streaming Tool Execution** — StreamingToolExecutor dispatches tools during LLM streaming response, eliminating the wait for full response completion. Go channel + goroutine as the natural equivalent of AsyncGenerator. Concurrency rules: concurrent-safe tools run in parallel, non-concurrent tools block the queue. StreamAccumulator handles OpenAI SSE chunk processing with index-based tool call accumulation — JSON fragments are concatenated (O(n)) rather than incrementally parsed (O(n²)). Automatic non-streaming fallback on connection failure or stream interruption.
 
 ### Future Extensions
 
-- Streaming tool execution (StreamingToolExecutor) for concurrent tool dispatch during LLM response
-- Tool Result Budget with disk fallback for large landing page HTML
 - Strategy A/B testing with canary traffic comparison metrics
 - Scheduled post-approval recheck for adversarial landing page swaps
 - HTTP API for external integration

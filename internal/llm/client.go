@@ -280,3 +280,13 @@ func (r *StreamReader) Recv() (*types.ChatCompletionChunk, error) {
 func (r *StreamReader) Close() error {
 	return r.body.Close()
 }
+
+// NewStreamReaderFromReadCloser creates a StreamReader from any io.ReadCloser.
+// Used by mock implementations to simulate streaming from in-memory data.
+func NewStreamReaderFromReadCloser(rc io.ReadCloser) *StreamReader {
+	return &StreamReader{
+		scanner: bufio.NewScanner(rc),
+		body:    rc,
+		usage:   NewSessionUsage(),
+	}
+}

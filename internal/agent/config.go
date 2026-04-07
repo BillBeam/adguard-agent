@@ -54,6 +54,11 @@ type LoopConfig struct {
 	// FallbackModel: the degraded model to use when consecutive 529 errors occur.
 	// Set by ModelRouter.GetFallback(). Empty = no automatic fallback.
 	FallbackModel string
+
+	// EnableStreaming: when true, uses streaming API calls with
+	// StreamingToolExecutor for concurrent tool dispatch during LLM response.
+	// Falls back to non-streaming on stream errors.
+	EnableStreaming bool
 }
 
 // WithContextManagement attaches Context Manager and Token Budget to the config.

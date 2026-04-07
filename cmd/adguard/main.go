@@ -264,7 +264,8 @@ func buildEngine(client llm.LLMClient, matrix *strategy.StrategyMatrix, logger *
 	auditHook := agent.NewAuditHook(logger)
 
 	reg := tool.NewReviewRegistry(client, matrix, logger)
-	executor := tool.NewExecutor(reg, logger)
+	resultBudget := tool.NewResultBudget(filepath.Join(dataDir, "tool-results"), logger)
+	executor := tool.NewExecutor(reg, logger).WithBudget(resultBudget)
 
 	hookChain := agent.NewHookChain(logger).Add(executor).Add(reviewStore).Add(trainingPool)
 
