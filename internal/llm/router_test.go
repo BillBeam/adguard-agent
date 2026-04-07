@@ -16,7 +16,7 @@ func TestRouteModel_PipelineOnly(t *testing.T) {
 	}{
 		{"fast", "", "grok-4-1-fast-non-reasoning"},
 		{"standard", "", "grok-4-1-fast-reasoning"},
-		{"comprehensive", "", "grok-4.20-multi-agent-0309"},
+		{"comprehensive", "", "grok-4.20-0309-reasoning"},
 		{"appeal", "", "grok-4.20-0309-reasoning"},
 	}
 	for _, tt := range tests {
@@ -38,7 +38,7 @@ func TestRouteModel_PipelineWithRole(t *testing.T) {
 
 	// "comprehensive:content" should fall back to pipeline-only route.
 	got = r.RouteModel("comprehensive", "content")
-	want = "grok-4.20-multi-agent-0309"
+	want = "grok-4.20-0309-reasoning"
 	if got != want {
 		t.Errorf("RouteModel(comprehensive, content) = %q, want %q", got, want)
 	}
@@ -61,7 +61,7 @@ func TestGetFallback_Chain(t *testing.T) {
 		wantOK   bool
 	}{
 		{"grok-4.20-0309-reasoning", "grok-4-1-fast-reasoning", true},
-		{"grok-4.20-multi-agent-0309", "grok-4-1-fast-reasoning", true},
+		{"grok-4.20-0309-reasoning", "grok-4-1-fast-reasoning", true},
 		{"grok-4-1-fast-reasoning", "gpt-4o", true},
 		{"grok-4-1-fast-non-reasoning", "gpt-4o-mini", true},
 		{"gpt-4o", "", false},       // no fallback configured

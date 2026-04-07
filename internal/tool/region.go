@@ -55,9 +55,6 @@ func (r *RegionCompliance) InputSchema() json.RawMessage {
 }
 
 func (r *RegionCompliance) ValidateInput(args json.RawMessage) error {
-	if isJSONString(args) {
-		return nil
-	}
 	var input struct {
 		Region   string `json:"region"`
 		Category string `json:"category"`

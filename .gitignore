@@ -26,6 +26,10 @@ Thumbs.db
 *.out
 vendor/
 
+# Runtime data (JSONL persistence, tool result disk fallback)
+data/*.jsonl
+data/tool-results/
+
 # Environment
 .env
 .env.local

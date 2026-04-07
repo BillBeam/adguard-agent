@@ -65,10 +65,6 @@ func (c *ContentAnalyzer) InputSchema() json.RawMessage {
 }
 
 func (c *ContentAnalyzer) ValidateInput(args json.RawMessage) error {
-	// Accept both object {"headline":"..."} and plain string "..." (LLM may pass either).
-	if isJSONString(args) {
-		return nil // will be handled in Execute
-	}
 	var input struct {
 		Headline string `json:"headline"`
 		Body     string `json:"body"`

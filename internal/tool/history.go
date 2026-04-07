@@ -82,9 +82,6 @@ func (h *HistoryLookup) InputSchema() json.RawMessage {
 }
 
 func (h *HistoryLookup) ValidateInput(args json.RawMessage) error {
-	if isJSONString(args) {
-		return nil // string treated as advertiser_id in Execute
-	}
 	var input struct {
 		AdvertiserID string `json:"advertiser_id"`
 	}

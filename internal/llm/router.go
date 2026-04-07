@@ -38,8 +38,10 @@ func DefaultRoutingConfig() RoutingConfig {
 			"fast": "grok-4-1-fast-non-reasoning",
 			// Medium risk: balanced cost and quality (current default model).
 			"standard": "grok-4-1-fast-reasoning",
-			// High risk: multi-agent optimized model for specialist agents.
-			"comprehensive": "grok-4.20-multi-agent-0309",
+			// High risk: strongest reasoning model with verified tool calling support.
+			// Note: grok-4.20-multi-agent-0309 uses a proprietary protocol incompatible
+			// with OpenAI /v1/chat/completions, so we use grok-4.20-0309-reasoning instead.
+			"comprehensive": "grok-4.20-0309-reasoning",
 			// Adjudicator always uses strongest reasoning regardless of pipeline.
 			"comprehensive:adjudicator": "grok-4.20-0309-reasoning",
 			// Appeal re-review needs independent strong reasoning.
@@ -47,8 +49,7 @@ func DefaultRoutingConfig() RoutingConfig {
 		},
 		Fallbacks: map[string]string{
 			// grok-4.20 series → fall back to grok-4-1 series
-			"grok-4.20-0309-reasoning":   "grok-4-1-fast-reasoning",
-			"grok-4.20-multi-agent-0309": "grok-4-1-fast-reasoning",
+			"grok-4.20-0309-reasoning": "grok-4-1-fast-reasoning",
 			// grok-4-1 series → fall back to OpenAI (cross-provider)
 			"grok-4-1-fast-reasoning":     "gpt-4o",
 			"grok-4-1-fast-non-reasoning": "gpt-4o-mini",

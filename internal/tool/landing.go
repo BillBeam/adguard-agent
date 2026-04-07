@@ -70,9 +70,6 @@ func (l *LandingPageChecker) InputSchema() json.RawMessage {
 }
 
 func (l *LandingPageChecker) ValidateInput(args json.RawMessage) error {
-	if isJSONString(args) {
-		return nil // string treated as URL in Execute
-	}
 	var input struct {
 		URL string `json:"url"`
 	}

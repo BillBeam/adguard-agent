@@ -58,9 +58,6 @@ func (p *PolicyMatcher) InputSchema() json.RawMessage {
 }
 
 func (p *PolicyMatcher) ValidateInput(args json.RawMessage) error {
-	if isJSONString(args) {
-		return nil
-	}
 	var input struct {
 		Region   string `json:"region"`
 		Category string `json:"category"`
