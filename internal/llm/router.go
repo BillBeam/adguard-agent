@@ -5,9 +5,8 @@
 // adjudication use the strongest reasoning models. When a provider is overloaded
 // (529), the system automatically degrades to a fallback model rather than stalling.
 //
-// Design reference: Claude Code's model.ts implements a 5-level priority system
-// for interactive CLI. Our routing is a pipeline×role matrix — more aligned with
-// batch ad review where the routing dimension is risk level, not user interaction mode.
+// The routing dimension is pipeline risk level × agent role, designed for batch
+// ad review rather than interactive user sessions.
 package llm
 
 import (
@@ -88,7 +87,7 @@ func NewModelRouter(cfg RoutingConfig, logger *slog.Logger) *ModelRouter {
 
 // RouteModel selects the model for a given pipeline and agent role.
 //
-// Lookup priority (2-level, matching Claude Code's specificity principle):
+// Lookup priority (2-level, more specific keys take precedence):
 //  1. Exact "pipeline:role" key (e.g., "comprehensive:adjudicator")
 //  2. Pipeline-only key (e.g., "comprehensive")
 //  3. Default model

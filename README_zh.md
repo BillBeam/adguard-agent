@@ -26,12 +26,18 @@ AdGuard Agent 自动化全球市场的广告内容审核。系统应用地区特
 - **策略版本管理** — 版本状态机（DRAFT→CANARY→ACTIVE→ROLLBACK）。基于 hash 的确定性流量路由。单 ACTIVE + 单 CANARY 不变量。Promote/Rollback 操作。
 - **训练数据池** — 三来源采集管道：高置信度审核、Verification override、申诉推翻。按 source/region/category 可筛选。完成标检训数据飞轮闭环。
 - **广告主信誉** — 信任评分与申诉结果联动。OVERTURNED 提升信任，UPHELD 降低信任并累计违规。风险分类：trusted/standard/flagged/probation。
+- **优雅退出** — SIGINT/SIGTERM 信号处理，含清理函数注册表和 5 秒 failsafe 计时器。等待 in-flight 审核完成后刷盘所有 JSONL 存储。
+- **JSONL 持久化** — 追加写入 JSONL 文件实现 crash-safe 审核数据持久化。每个 Store（ReviewStore、AppealStore、TrainingPool）维护独立文件。启动时通过重放日志恢复已有记录；crash 导致的残行静默跳过。
+- **模型路由** — 基于 pipeline × agent role 的 2 级路由矩阵选择模型。xAI 模型分层：`fast→grok-4-1-fast-non-reasoning`（最便宜，低风险无需推理）、`standard→grok-4-1-fast-reasoning`（平衡）、`comprehensive→grok-4.20-multi-agent-0309`（多 Agent 优化）、`adjudicator→grok-4.20-0309-reasoning`（最强推理）。跨 Provider 降级链：`grok-4.20-*→grok-4-1-fast-reasoning→gpt-4o`。
+- **529 过载降级** — 追踪连续 529（过载）错误。3 次连续 529 后自动使用降级链中的备选模型重试。防止审核管线在 Provider 容量不足时停摆。
 
 ### 未来扩展
 
+- 流式工具执行（StreamingToolExecutor），LLM 响应过程中并发调度工具
+- Tool Result Budget，大型落地页 HTML 的磁盘降级处理
+- 策略 A/B 测试，canary 流量对比指标
+- 投放后定时回检，防御落地页对抗性替换
 - HTTP API 对外集成
-- 持久化存储后端（PostgreSQL/Redis）
-- 实时监控 Dashboard
 - 图片/视频内容分析（多模态 LLM）
 
 ## 架构
@@ -164,14 +170,15 @@ LLM_API_KEY=your_key go run ./cmd/adguard/
 cmd/adguard/         CLI 入口（双模式：真实 LLM / Mock LLM）
 internal/
   types/             共享类型（消息、审核、策略）
-  llm/               LLM 客户端、重试、用量追踪
+  llm/               LLM 客户端、重试、用量追踪、模型路由器
   config/            配置加载（env > file > defaults）
+  shutdown/          优雅退出 + 清理函数注册表
   strategy/          策略矩阵引擎（策略 × 地区 → 审核方案）
   agent/             Agentic Loop、状态机、恢复机制、流事件
   agent/mock/        Mock LLM 客户端和工具执行器（测试用）
   tool/              工具系统：5 个审核工具 + 执行器 + 注册表
   compact/           Context 压缩 + Token 预算
-  store/             ReviewStore + Verification + 申诉 + 训练数据池
+  store/             ReviewStore + Verification + 申诉 + 训练数据池 + JSONL 持久化
   strategy/          策略矩阵 + 版本管理
 data/
   policy_kb.json     政策知识库（20 条 TikTok 对齐政策）

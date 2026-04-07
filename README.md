@@ -26,12 +26,18 @@ AdGuard Agent automates ad content review across global markets. The system appl
 - **Strategy Version Management** — Version state machine (DRAFT -> CANARY -> ACTIVE -> ROLLBACK). Deterministic hash-based traffic routing for canary. Single-active + single-canary invariant. Promote/Rollback operations.
 - **Training Data Pool** — Three-source collection pipeline: high-confidence reviews, verification overrides, appeal overturns. Filterable by source/region/category. Completes the label-detect-train data flywheel.
 - **Advertiser Reputation** — Trust score tracking linked to appeal outcomes. OVERTURNED raises trust, UPHELD lowers trust and increments violations. Risk categorization: trusted/standard/flagged/probation.
+- **Graceful Shutdown** — SIGINT/SIGTERM handler with cleanup registry and 5-second failsafe timer. Waits for in-flight reviews to complete, then flushes all JSONL stores before exit.
+- **JSONL Persistence** — Append-only JSONL files for crash-safe review data persistence. Each store (ReviewStore, AppealStore, TrainingPool) maintains its own file. On startup, existing records are recovered by replaying the log; corrupted lines from mid-write crashes are silently skipped.
+- **Model Routing** — Per-pipeline and per-agent-role model selection via a 2-level routing matrix. xAI model tiering: `fast→grok-4-1-fast-non-reasoning` (cheapest, no reasoning for low-risk), `standard→grok-4-1-fast-reasoning` (balanced), `comprehensive→grok-4.20-multi-agent-0309` (multi-agent optimized), `adjudicator→grok-4.20-0309-reasoning` (strongest reasoning). Cross-provider fallback chain: `grok-4.20-*→grok-4-1-fast-reasoning→gpt-4o`.
+- **529 Overload Fallback** — Tracks consecutive 529 (overloaded) errors. After 3 consecutive 529s, automatically retries with the degraded model from the fallback chain. Prevents review pipeline stalling during provider capacity issues.
 
 ### Future Extensions
 
+- Streaming tool execution (StreamingToolExecutor) for concurrent tool dispatch during LLM response
+- Tool Result Budget with disk fallback for large landing page HTML
+- Strategy A/B testing with canary traffic comparison metrics
+- Scheduled post-approval recheck for adversarial landing page swaps
 - HTTP API for external integration
-- Persistent storage backend (PostgreSQL/Redis)
-- Real-time monitoring dashboard
 - Image/video content analysis via multimodal LLM
 
 ## Architecture
@@ -84,7 +90,7 @@ AdGuard Agent automates ad content review across global markets. The system appl
 # Build
 go build ./...
 
-# Run all tests (151 tests)
+# Run all tests
 go test ./... -v
 
 # Run without API key (mock mode — reviews all 15 samples)
@@ -163,6 +169,8 @@ Environment variables (highest priority):
 | `LOG_LEVEL` | `info` | Log level (debug/info/warn/error) |
 | `DATA_DIR` | `data` | Path to data directory |
 
+Model routing is configured via `RoutingConfig` in code (see `llm/router.go:DefaultRoutingConfig`). Routes and fallbacks can be customized via `config.json` under the `"routing"` key.
+
 Config file (`config.json` in project root) and built-in defaults provide fallback values.
 
 ## Project Structure
@@ -171,14 +179,15 @@ Config file (`config.json` in project root) and built-in defaults provide fallba
 cmd/adguard/         CLI entry point (dual mode: real LLM / mock LLM)
 internal/
   types/             Shared types (messages, review, strategy)
-  llm/               LLM client, retry, usage tracking
+  llm/               LLM client, retry, usage tracking, model router
   config/            Configuration loading (env > file > defaults)
+  shutdown/          Graceful shutdown with cleanup registry
   strategy/          Strategy matrix engine (policy x region -> review plan)
   agent/             Agentic loop, state machine, recovery, stream events
   agent/mock/        Mock LLM client and tool executor (for testing)
   tool/              Tool system: 5 review tools + executor + registry
   compact/           Context compression + token budget
-  store/             ReviewStore + Verification + Appeal + Training pool
+  store/             ReviewStore + Verification + Appeal + Training pool + JSONL persistence
   strategy/          Strategy matrix + version management
 data/
   policy_kb.json     Policy knowledge base (20 TikTok-aligned policies)

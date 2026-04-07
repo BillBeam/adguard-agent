@@ -24,7 +24,7 @@ const (
 	defaultMaxRetries = 10
 
 	// Max529Retries is the number of consecutive 529 (overloaded) errors before
-	// triggering a model fallback. Mirrors Claude Code's MAX_529_RETRIES (withRetry.ts:54).
+	// triggering a model fallback to a cheaper/different-provider model.
 	Max529Retries = 3
 )
 
@@ -49,7 +49,7 @@ func (e *APIError) Unwrap() error { return e.Err }
 // FallbackTriggeredError indicates that consecutive 529 errors have triggered
 // a model downgrade. The caller should retry the request with FallbackModel.
 //
-// Design reference: Claude Code's FallbackTriggeredError in withRetry.ts:326-365.
+// The caller (ReviewEngine) catches this error and retries with FallbackModel.
 type FallbackTriggeredError struct {
 	OriginalModel string
 	FallbackModel string

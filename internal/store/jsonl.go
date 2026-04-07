@@ -4,9 +4,8 @@
 // file. On startup, existing records are recovered by replaying the log.
 // Corrupted lines (e.g., from a mid-write crash) are silently skipped.
 //
-// Design reference: Claude Code's sessionStorage.ts uses append-only JSONL with
-// queued writes and UUID chains for multi-device sync. We use the simpler
-// single-writer append model since the ad review agent is single-process.
+// Single-writer append model: no write queuing or conflict resolution needed
+// since the ad review agent is a single-process service.
 package store
 
 import (
