@@ -178,7 +178,7 @@ func (h *CircuitBreakerHook) PreToolExec(toolName string, _ []byte) error {
 func (h *CircuitBreakerHook) PostToolExec(_ string, result string, err error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if err != nil || strings.Contains(result, `"error"`) {
+	if err != nil || strings.HasPrefix(strings.TrimSpace(result), `{"error":`) {
 		h.consecutiveFails++
 		if h.consecutiveFails >= h.threshold {
 			h.tripped = true
