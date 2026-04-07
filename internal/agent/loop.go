@@ -28,10 +28,11 @@ const (
 
 // LoopResult is the final output of the agentic loop.
 type LoopResult struct {
-	ExitReason   ExitReason          `json:"exit_reason"`
-	ReviewResult *types.ReviewResult `json:"review_result,omitempty"`
-	State        *State              `json:"-"` // full state snapshot with TransitionLog
-	Error        error               `json:"-"`
+	ExitReason       ExitReason          `json:"exit_reason"`
+	ReviewResult     *types.ReviewResult `json:"review_result,omitempty"`
+	MultiAgentDetail *MultiAgentResult   `json:"multi_agent_detail,omitempty"` // populated for multi-agent reviews
+	State            *State              `json:"-"`
+	Error            error               `json:"-"`
 }
 
 // Run executes the Agentic Loop — the core review lifecycle state machine.
@@ -99,8 +100,12 @@ func Run(
 			err               error
 		)
 
+		var streamMetrics *StreamMetrics
 		if config.EnableStreaming {
-			resp, streamToolResults, err = callAPIStreaming(ctx, client, config, state, events, logger)
+			resp, streamToolResults, streamMetrics, err = callAPIStreaming(ctx, client, config, state, events, logger)
+			if streamMetrics != nil {
+				state.StreamMetrics = streamMetrics
+			}
 		} else {
 			resp, err = client.ChatCompletion(ctx, req)
 		}
@@ -525,7 +530,7 @@ func callAPIStreaming(
 	state *State,
 	events chan<- StreamEvent,
 	logger *slog.Logger,
-) (*types.ChatCompletionResponse, []types.Message, error) {
+) (*types.ChatCompletionResponse, []types.Message, *StreamMetrics, error) {
 	req := buildRequest(config, state)
 	req.Stream = true
 
@@ -541,7 +546,7 @@ func callAPIStreaming(
 		emitEvent(events, EventStreamFallback, state, "connection failed")
 		req.Stream = false
 		resp, err := client.ChatCompletion(ctx, req)
-		return resp, nil, err
+		return resp, nil, nil, err
 	}
 	defer stream.Close()
 	emitEvent(events, EventStreamStarted, state, "")
@@ -561,7 +566,7 @@ func callAPIStreaming(
 			emitEvent(events, EventStreamFallback, state, "stream interrupted")
 			req.Stream = false
 			resp, err := client.ChatCompletion(ctx, req)
-			return resp, nil, err
+			return resp, nil, nil, err
 		}
 		accumulator.ProcessChunk(chunk)
 
@@ -589,11 +594,14 @@ func callAPIStreaming(
 	streamDuration := time.Since(streamStart)
 
 	// Collect results from tools that executed during streaming.
-	var toolResults []types.Message
+	var (
+		toolResults []types.Message
+		collectWait time.Duration
+	)
 	if executor.ToolCount() > 0 {
 		collectStart := time.Now()
 		toolResults = executor.CollectResults(ctx)
-		collectWait := time.Since(collectStart)
+		collectWait = time.Since(collectStart)
 
 		logger.Info("streaming tool execution summary",
 			slog.Int("tools", executor.ToolCount()),
@@ -601,12 +609,17 @@ func callAPIStreaming(
 			slog.Duration("collect_wait", collectWait),
 		)
 
-		// If collect_wait is near zero, tools finished DURING streaming — the optimization worked.
 		for _, tr := range toolResults {
 			emitEvent(events, EventStreamToolCompleted, state, tr.ToolCallID)
 		}
 	}
 
+	metrics := &StreamMetrics{
+		StreamDuration:  streamDuration,
+		CollectWait:     collectWait,
+		ToolsDispatched: executor.ToolCount(),
+	}
+
 	resp := accumulator.BuildResponse()
-	return resp, toolResults, nil
+	return resp, toolResults, metrics, nil
 }

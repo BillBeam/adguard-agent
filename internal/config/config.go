@@ -68,7 +68,7 @@ func defaultConfig() Config {
 			SamplesFile:      "samples/all_samples.json",
 		},
 		Logging: LoggingConfig{
-			Level: "info",
+			Level: "warn", // clean demo output; use LOG_LEVEL=info for verbose
 		},
 	}
 }

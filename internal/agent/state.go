@@ -108,6 +108,17 @@ type State struct {
 
 	// Timing.
 	StartedAt time.Time
+
+	// StreamMetrics captures streaming tool execution performance.
+	// nil when non-streaming mode is used.
+	StreamMetrics *StreamMetrics
+}
+
+// StreamMetrics records how tools were dispatched during streaming.
+type StreamMetrics struct {
+	StreamDuration  time.Duration `json:"stream_duration"`
+	CollectWait     time.Duration `json:"collect_wait"`
+	ToolsDispatched int           `json:"tools_dispatched"`
 }
 
 // NewState creates the initial state for reviewing an ad.

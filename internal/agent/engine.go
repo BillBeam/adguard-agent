@@ -391,9 +391,10 @@ func (e *ReviewEngine) reviewMultiAgent(ctx context.Context, ad *types.AdContent
 	state := NewState(ad)
 	state.PartialResult.AgentTrace = result.AgentTrace
 	lr := &LoopResult{
-		ExitReason:   ExitCompleted,
-		ReviewResult: result,
-		State:        state,
+		ExitReason:       ExitCompleted,
+		ReviewResult:     result,
+		MultiAgentDetail: multiResult,
+		State:            state,
 	}
 
 	e.logger.Info("multi-agent review completed",

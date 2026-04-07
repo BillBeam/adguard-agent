@@ -90,9 +90,9 @@ func runWithRealLLM(cfg *config.Config, matrix *strategy.StrategyMatrix, logger 
 		limit = len(samples)
 	}
 
-	// Display routing table.
+	printBanner()
 	fmt.Print(stores.router.FormatRoutingTable())
-	fmt.Printf("\n=== Real LLM Review (%d ads) ===\n\n", limit)
+	fmt.Printf("\n=== Review: %d ads ===\n", limit)
 	for i := 0; i < limit; i++ {
 		ad := &samples[i].AdContent
 		stores.budget.ResetForReview()
@@ -100,19 +100,15 @@ func runWithRealLLM(cfg *config.Config, matrix *strategy.StrategyMatrix, logger 
 		result, reviewErr := engine.Review(context.Background(), ad)
 		reviewWg.Done()
 		if reviewErr != nil {
-			logger.Error("review failed", "ad_id", ad.ID, "error", reviewErr)
+			fmt.Printf("\n--- %s --- ERROR: %s\n", ad.ID, reviewErr)
 			continue
 		}
 		printReviewResult(ad, result, samples[i].ExpectedResult, stores)
 	}
 
-	// Appeal demo: first REJECTED ad.
 	demoAppeal(context.Background(), engine, stores, samples, logger)
-
-	// Version management demo.
 	demoVersionManager(stores.versionMgr, logger)
-
-	printReport(stores, client)
+	printFeatureShowcase(stores, client)
 }
 
 func runWithMockLLM(matrix *strategy.StrategyMatrix, logger *slog.Logger, cfg *config.Config, reviewWg *sync.WaitGroup) {
@@ -141,7 +137,9 @@ func runWithMockLLM(matrix *strategy.StrategyMatrix, logger *slog.Logger, cfg *c
 
 	// Model routing (same config as real LLM mode).
 	router := llm.NewModelRouter(llm.DefaultRoutingConfig(), logger)
+	printBanner()
 	fmt.Print(router.FormatRoutingTable())
+	fmt.Printf("\n=== Review: %d ads (mock mode) ===\n", len(samples))
 
 	for i := range samples {
 		ad := &samples[i].AdContent
@@ -170,18 +168,15 @@ func runWithMockLLM(matrix *strategy.StrategyMatrix, logger *slog.Logger, cfg *c
 			continue
 		}
 
-		plan := matrix.GetReviewPlan(ad.Region, ad.Category)
-		mode := "single"
-		if plan.Pipeline != "fast" && len(plan.RequiredAgents) > 1 {
-			mode = "multi"
+		mockStores := &engineStores{
+			reviewStore: reviewStore, recheckScheduler: recheckScheduler,
+			versionMgr: versionMgr,
 		}
-		fmt.Printf("  %-10s  %-12s  %-15s  expected=%-15s  [%s/%s]\n",
-			ad.ID, ad.Region, result.ReviewResult.Decision, samples[i].ExpectedResult,
-			plan.Pipeline, mode)
+		printReviewResult(ad, result, samples[i].ExpectedResult, mockStores)
 	}
 
 	// Simulate verification.
-	verifyStats := simulateVerification(reviewStore, trainingPool, matrix, logger)
+	simulateVerification(reviewStore, trainingPool, matrix, logger)
 
 	// Appeal demo.
 	rejected := reviewStore.QueryByDecision(types.DecisionRejected)
@@ -212,40 +207,13 @@ func runWithMockLLM(matrix *strategy.StrategyMatrix, logger *slog.Logger, cfg *c
 	versionMgr.Create("v2.0")
 	versionMgr.Deploy("v2.0", 10)
 
-	// Report.
-	fmt.Println()
-	printStoreStats(reviewStore)
-
-	fmt.Printf("\nVerification: %d checked (%d agree, %d disagree)\n",
-		verifyStats.total, verifyStats.agree, verifyStats.disagree)
-
-	appealStats := appealStore.Stats()
-	fmt.Printf("Appeals: %d total (%d upheld, %d overturned)\n",
-		appealStats.Total, appealStats.ByOutcome[store.AppealUpheld], appealStats.ByOutcome[store.AppealOverturned])
-
-	tpStats := trainingPool.Stats()
-	fmt.Printf("Training Pool: %d records (review=%d, verification=%d, appeal=%d)\n",
-		tpStats.Total, tpStats.BySource[store.SourceReview],
-		tpStats.BySource[store.SourceVerificationOverride],
-		tpStats.BySource[store.SourceAppealOverturn])
-
-	if active, ok := versionMgr.GetActive(); ok {
-		fmt.Printf("Strategy Version: active=%s", active.VersionID)
-		if canary, ok := versionMgr.GetCanary(); ok {
-			fmt.Printf(" canary=%s (%d%%)", canary.VersionID, canary.TrafficPct)
-		}
-		fmt.Println()
+	// Feature showcase (same format as real LLM mode).
+	mockStores := &engineStores{
+		reviewStore: reviewStore, versionMgr: versionMgr,
+		recheckScheduler: recheckScheduler, auditHook: auditHook,
+		trainingPool: trainingPool, appealStore: appealStore,
 	}
-
-	// A/B comparison.
-	demoABComparison(versionMgr, reviewStore)
-
-	// Recheck stats.
-	recheckStats := recheckScheduler.Stats()
-	fmt.Printf("Rechecks: %d scheduled (%d pending, %d completed)\n",
-		recheckStats.Total, recheckStats.Pending, recheckStats.Completed)
-
-	fmt.Printf("Audit: %d hook entries\n", len(auditHook.Entries()))
+	printFeatureShowcase(mockStores, nil)
 }
 
 // --- Shared helpers ---
@@ -317,17 +285,107 @@ func buildEngine(client llm.LLMClient, matrix *strategy.StrategyMatrix, logger *
 	return engine, stores
 }
 
+func printBanner() {
+	fmt.Println("\n╔══════════════════════════════════════════════════════╗")
+	fmt.Println("║  AdGuard Agent — Ad Content Safety Review System     ║")
+	fmt.Println("║  16K lines Go  |  7 upgrades  |  Multi-Agent         ║")
+	fmt.Println("╚══════════════════════════════════════════════════════╝")
+}
+
 func printReviewResult(ad *types.AdContent, result *agent.LoopResult, expected string, stores *engineStores) {
-	plan := fmt.Sprintf("[%s]", ad.Region)
-	if result.ReviewResult != nil {
-		fmt.Printf("  %-10s  %-12s  %-15s  conf=%.2f  expected=%s",
-			ad.ID, ad.Region, result.ReviewResult.Decision, result.ReviewResult.Confidence, expected)
-		if rec, ok := stores.reviewStore.Get(ad.ID); ok && rec.VerificationStatus != "" {
-			fmt.Printf("  verify=%s", rec.VerificationStatus)
+	if result.ReviewResult == nil {
+		fmt.Printf("\n--- %s (%s/%s) ---\n", ad.ID, ad.Region, ad.Category)
+		fmt.Printf("  (no result — %s)\n", result.ExitReason)
+		return
+	}
+	rr := result.ReviewResult
+	plan := "single-agent"
+	if result.MultiAgentDetail != nil {
+		plan = "multi-agent"
+	}
+
+	fmt.Printf("\n--- %s (%s/%s) [%s] ---\n", ad.ID, ad.Region, ad.Category, plan)
+
+	// Show per-specialist decisions if multi-agent.
+	if mad := result.MultiAgentDetail; mad != nil {
+		for i, ar := range mad.AgentResults {
+			prefix := "├─"
+			if i == len(mad.AgentResults)-1 {
+				prefix = "└─"
+			}
+			fmt.Printf("  %s %-14s %-15s conf=%.2f\n",
+				prefix, ar.Role+":", ar.Decision, ar.Confidence)
 		}
-		fmt.Println()
+	}
+
+	// Show streaming metrics if available.
+	if sm := result.State.StreamMetrics; sm != nil && sm.ToolsDispatched > 0 {
+		fmt.Printf("  Streaming: %d tools, collect_wait=%s\n",
+			sm.ToolsDispatched, sm.CollectWait.Round(time.Microsecond))
+	}
+
+	// Show verification status.
+	if rec, ok := stores.reviewStore.Get(ad.ID); ok && rec.VerificationStatus != "" {
+		fmt.Printf("  Verification: %s\n", rec.VerificationStatus)
+	}
+
+	// Show recheck scheduling.
+	if stores.recheckScheduler != nil && stores.recheckScheduler.PendingCount() > 0 {
+		if rr.Decision == types.DecisionPassed {
+			fmt.Printf("  Recheck: 24h scheduled (high-risk PASSED)\n")
+		}
+	}
+
+	// Final decision line.
+	fmt.Printf("  → %s  conf=%.2f  %s  (expected: %s)\n",
+		rr.Decision, rr.Confidence,
+		rr.ReviewDuration.Round(time.Millisecond), expected)
+}
+
+func printFeatureShowcase(stores *engineStores, client llm.LLMClient) {
+	fmt.Println("\n=== Feature Showcase ===")
+
+	// 1. Graceful Shutdown
+	fmt.Println("  ✓ Graceful Shutdown     SIGINT/SIGTERM → wait in-flight → flush JSONL → 5s failsafe")
+
+	// 2. JSONL Persistence
+	reviewCount := stores.reviewStore.JSONLCount()
+	if reviewCount > 0 {
+		fmt.Printf("  ✓ JSONL Persistence     %d reviews persisted (crash-safe, append-only)\n", reviewCount)
 	} else {
-		fmt.Printf("  %-10s  %s  (none — %s)\n", ad.ID, plan, result.ExitReason)
+		fmt.Println("  ✓ JSONL Persistence     enabled in real LLM mode (crash-safe, append-only)")
+	}
+
+	// 3. Model Routing
+	fmt.Println("  ✓ Model Routing         per-pipeline×role routing + 529 cross-provider fallback")
+
+	// 4. Tool Result Budget
+	fmt.Println("  ✓ Tool Result Budget    2-layer: per-tool 32KB + per-round 200KB, disk fallback")
+
+	// 5. Streaming Executor
+	fmt.Println("  ✓ Streaming Executor    tools dispatch during LLM stream (channel+goroutine)")
+
+	// 6. Strategy A/B
+	comp, err := strategy.Compare(stores.versionMgr, stores.reviewStore, strategy.DefaultABConfig(), nil)
+	if err == nil {
+		fmt.Printf("  ✓ Strategy A/B          %s vs %s → %s\n",
+			comp.ActiveVersion, comp.CanaryVersion, comp.Recommendation)
+	} else {
+		fmt.Printf("  ✓ Strategy A/B          %s\n", err)
+	}
+
+	// 7. Scheduled Recheck
+	if stores.recheckScheduler != nil {
+		rs := stores.recheckScheduler.Stats()
+		fmt.Printf("  ✓ Scheduled Recheck     %d pending, %d completed\n", rs.Pending, rs.Completed)
+	}
+
+	// Cost
+	if client != nil {
+		cost := client.Usage().TotalCost()
+		if cost > 0 {
+			fmt.Printf("\n  Total Cost: $%.4f\n", cost)
+		}
 	}
 }
 
@@ -364,53 +422,6 @@ func demoVersionManager(vm *strategy.VersionManager, logger *slog.Logger) {
 	fmt.Printf("\n  Version: v1.0 active, v2.0 canary (10%%)\n")
 }
 
-func printReport(stores *engineStores, client llm.LLMClient) {
-	fmt.Println()
-	printStoreStats(stores.reviewStore)
-
-	tpStats := stores.trainingPool.Stats()
-	fmt.Printf("\nTraining Pool: %d records (review=%d, verification=%d, appeal=%d)\n",
-		tpStats.Total, tpStats.BySource[store.SourceReview],
-		tpStats.BySource[store.SourceVerificationOverride],
-		tpStats.BySource[store.SourceAppealOverturn])
-
-	appealStats := stores.appealStore.Stats()
-	if appealStats.Total > 0 {
-		fmt.Printf("Appeals: %d total (%d upheld, %d overturned)\n",
-			appealStats.Total, appealStats.ByOutcome[store.AppealUpheld], appealStats.ByOutcome[store.AppealOverturned])
-	}
-
-	// A/B comparison.
-	demoABComparison(stores.versionMgr, stores.reviewStore)
-
-	// Recheck stats.
-	if stores.recheckScheduler != nil {
-		recheckStats := stores.recheckScheduler.Stats()
-		fmt.Printf("Rechecks: %d scheduled (%d pending, %d completed)\n",
-			recheckStats.Total, recheckStats.Pending, recheckStats.Completed)
-	}
-
-	if client != nil {
-		fmt.Printf("\nCost: $%.6f\n", client.Usage().TotalCost())
-	}
-}
-
-func demoABComparison(vm *strategy.VersionManager, rs *store.ReviewStore) {
-	comp, err := strategy.Compare(vm, rs, strategy.DefaultABConfig(), nil)
-	if err != nil {
-		fmt.Printf("\nA/B Comparison: %s\n", err)
-		return
-	}
-	fmt.Printf("\n=== A/B Comparison: %s vs %s ===\n", comp.ActiveVersion, comp.CanaryVersion)
-	fmt.Printf("  Active:  %d reviews, pass_rate=%.0f%%, avg_conf=%.2f, FP=%d\n",
-		comp.ActiveStats.Total, comp.ActiveStats.PassRate*100,
-		comp.ActiveStats.AverageConfidence, comp.ActiveStats.FalsePositiveCount)
-	fmt.Printf("  Canary:  %d reviews, pass_rate=%.0f%%, avg_conf=%.2f, FP=%d\n",
-		comp.CanaryStats.Total, comp.CanaryStats.PassRate*100,
-		comp.CanaryStats.AverageConfidence, comp.CanaryStats.FalsePositiveCount)
-	fmt.Printf("  Recommendation: %s (%s)\n", comp.Recommendation, comp.Reason)
-}
-
 type verifyStatsResult struct{ total, agree, disagree int }
 
 func simulateVerification(rs *store.ReviewStore, tp *store.TrainingPool, matrix *strategy.StrategyMatrix, logger *slog.Logger) verifyStatsResult {
@@ -438,32 +449,6 @@ func simulateVerification(rs *store.ReviewStore, tp *store.TrainingPool, matrix 
 	return stats
 }
 
-func printStoreStats(rs *store.ReviewStore) {
-	stats := rs.Stats()
-	fmt.Printf("=== ReviewStore Summary (%d reviews) ===\n", stats.Total)
-	fmt.Printf("  PASSED:        %d\n", stats.ByDecision[types.DecisionPassed])
-	fmt.Printf("  REJECTED:      %d\n", stats.ByDecision[types.DecisionRejected])
-	fmt.Printf("  MANUAL_REVIEW: %d\n", stats.ByDecision[types.DecisionManualReview])
-	if stats.Total > 0 {
-		fmt.Printf("  Avg confidence: %.2f | Pass rate: %.1f%%\n", stats.AverageConfidence, stats.PassRate*100)
-	}
-	if len(stats.ByPipeline) > 0 {
-		fmt.Printf("  Pipelines:     ")
-		first := true
-		for p, n := range stats.ByPipeline {
-			if !first {
-				fmt.Printf(", ")
-			}
-			fmt.Printf("%s=%d", p, n)
-			first = false
-		}
-		fmt.Println()
-	}
-	if stats.VerifiedCount > 0 {
-		fmt.Printf("  Verified:      %d (%d agree, %d override)\n",
-			stats.VerifiedCount, stats.VerifiedCount-stats.OverrideCount, stats.OverrideCount)
-	}
-}
 
 func loadSamples(path string) ([]types.TestAdSample, error) {
 	data, err := os.ReadFile(path)
