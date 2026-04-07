@@ -210,6 +210,11 @@ type ChatCompletionRequest struct {
 	Stream         bool            `json:"stream,omitempty"`
 	ResponseFormat *ResponseFormat `json:"response_format,omitempty"`
 	Stop           []string        `json:"stop,omitempty"`
+
+	// Retry hints — not serialized to API, consumed by the LLM client's retry logic.
+	// When FallbackModel is set, consecutive 529 errors trigger automatic model downgrade.
+	RetryCurrentModel  string `json:"-"`
+	RetryFallbackModel string `json:"-"`
 }
 
 // ChatCompletionResponse is the response from /v1/chat/completions (non-streaming).

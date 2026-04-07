@@ -180,6 +180,9 @@ func (o *Orchestrator) runSingleAgent(
 	// Model routing: select model based on pipeline and agent role.
 	if o.router != nil {
 		config.Model = o.router.RouteModel(plan.Pipeline, string(spec.Role))
+		if fb, ok := o.router.GetFallback(config.Model); ok {
+			config.FallbackModel = fb
+		}
 	}
 
 	// Build isolated state — each agent starts with fresh messages.
@@ -251,6 +254,9 @@ func (o *Orchestrator) runAdjudicator(
 	// Model routing: adjudicator uses the strongest reasoning model.
 	if o.router != nil {
 		config.Model = o.router.RouteModel(plan.Pipeline, "adjudicator")
+		if fb, ok := o.router.GetFallback(config.Model); ok {
+			config.FallbackModel = fb
+		}
 	}
 
 	state := NewState(ad)

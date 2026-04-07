@@ -257,6 +257,9 @@ func (e *ReviewEngine) Review(ctx context.Context, ad *types.AdContent) (*LoopRe
 	// Model routing: select model based on pipeline.
 	if e.router != nil {
 		config.Model = e.router.RouteModel(plan.Pipeline, "")
+		if fb, ok := e.router.GetFallback(config.Model); ok {
+			config.FallbackModel = fb
+		}
 	}
 
 	// 3. Initialize state.

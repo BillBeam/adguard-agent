@@ -32,7 +32,7 @@ type CompactConfig struct {
 
 	// MaxConsecutiveFailures is the circuit breaker limit.
 	// After this many consecutive AutoCompact failures, stop retrying.
-	// Default: 3 (matches reference MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES).
+	// Default: 3 (empirical: more than 3 consecutive failures suggests a persistent issue).
 	MaxConsecutiveFailures int
 }
 

@@ -50,6 +50,10 @@ type LoopConfig struct {
 	// Model override: if non-empty, overrides the LLM client's default model.
 	// Set by ModelRouter based on pipeline and agent role.
 	Model string
+
+	// FallbackModel: the degraded model to use when consecutive 529 errors occur.
+	// Set by ModelRouter.GetFallback(). Empty = no automatic fallback.
+	FallbackModel string
 }
 
 // WithContextManagement attaches Context Manager and Token Budget to the config.

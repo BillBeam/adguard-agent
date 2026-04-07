@@ -361,6 +361,8 @@ func buildRequest(config *LoopConfig, state *State) types.ChatCompletionRequest 
 	}
 	if config.Model != "" {
 		req.Model = config.Model
+		req.RetryCurrentModel = config.Model
+		req.RetryFallbackModel = config.FallbackModel
 	}
 	return req
 }

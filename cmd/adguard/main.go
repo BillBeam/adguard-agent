@@ -134,6 +134,10 @@ func runWithMockLLM(matrix *strategy.StrategyMatrix, logger *slog.Logger, cfg *c
 	versionMgr.Deploy("v1.0", 0)
 	versionMgr.Promote("v1.0")
 
+	// Model routing (same config as real LLM mode).
+	router := llm.NewModelRouter(llm.DefaultRoutingConfig(), logger)
+	fmt.Print(router.FormatRoutingTable())
+
 	for i := range samples {
 		ad := &samples[i].AdContent
 		client := mock.NewLLMClient()
@@ -142,9 +146,11 @@ func runWithMockLLM(matrix *strategy.StrategyMatrix, logger *slog.Logger, cfg *c
 
 		hookChain := agent.NewHookChain(logger).Add(executor).Add(reviewStore).Add(trainingPool)
 		orchestrator := agent.NewOrchestrator(client, matrix, reg, logger)
+		orchestrator.WithModelRouter(router)
 
 		engine := agent.NewReviewEngine(client, matrix, reg.ExportDefinitions(), executor, logger, hookChain)
 		engine.WithOrchestrator(orchestrator)
+		engine.WithModelRouter(router)
 		engine.WithPhase3(nil, nil, reviewStore, nil)
 		engine.WithPhase5(trainingPool, appealStore, reputationMgr, versionMgr)
 
