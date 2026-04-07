@@ -60,6 +60,10 @@ type ReviewStats struct {
 	PassRate          float64                          `json:"pass_rate"`
 	VerifiedCount     int                              `json:"verified_count"`
 	OverrideCount     int                              `json:"override_count"`
+	// FalsePositiveCount tracks verification overrides — reviews where the system
+	// was wrong (REJECTED → MANUAL_REVIEW on verification disagree).
+	// Used by A/B comparison to detect strategy regression.
+	FalsePositiveCount int `json:"false_positive_count"`
 }
 
 // ReviewStore manages review records in memory with optional JSONL persistence.
@@ -290,6 +294,52 @@ func (rs *ReviewStore) Stats() ReviewStats {
 		}
 		if r.VerificationStatus == VerificationOverride {
 			stats.OverrideCount++
+		}
+	}
+
+	if stats.Total > 0 {
+		stats.AverageConfidence = totalConfidence / float64(stats.Total)
+		stats.PassRate = float64(stats.ByDecision[types.DecisionPassed]) / float64(stats.Total)
+	}
+
+	return stats
+}
+
+// VersionStats computes review statistics for a specific strategy version.
+// Filters records to those matching versionID, then computes the same metrics
+// as Stats() plus FalsePositiveCount (verification overrides).
+// Used by A/B comparison to evaluate canary vs active performance.
+func (rs *ReviewStore) VersionStats(versionID string) ReviewStats {
+	rs.mu.RLock()
+	defer rs.mu.RUnlock()
+
+	stats := ReviewStats{
+		ByDecision: make(map[types.ReviewDecision]int),
+		ByRegion:   make(map[string]int),
+		ByPipeline: make(map[string]int),
+		ByVersion:  make(map[string]int),
+	}
+
+	var totalConfidence float64
+	for _, r := range rs.records {
+		if r.StrategyVersionID != versionID {
+			continue
+		}
+		stats.Total++
+		stats.ByDecision[r.Decision]++
+		stats.ByRegion[r.Region]++
+		if r.Pipeline != "" {
+			stats.ByPipeline[r.Pipeline]++
+		}
+		stats.ByVersion[r.StrategyVersionID]++
+		totalConfidence += r.Confidence
+
+		if r.VerificationStatus == VerificationConfirmed || r.VerificationStatus == VerificationOverride {
+			stats.VerifiedCount++
+		}
+		if r.VerificationStatus == VerificationOverride {
+			stats.OverrideCount++
+			stats.FalsePositiveCount++
 		}
 	}
 

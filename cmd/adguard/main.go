@@ -10,11 +10,14 @@ import (
 
 	"sync"
 
+	"time"
+
 	"github.com/BillBeam/adguard-agent/internal/agent"
 	"github.com/BillBeam/adguard-agent/internal/agent/mock"
 	"github.com/BillBeam/adguard-agent/internal/compact"
 	"github.com/BillBeam/adguard-agent/internal/config"
 	"github.com/BillBeam/adguard-agent/internal/llm"
+	"github.com/BillBeam/adguard-agent/internal/recheck"
 	"github.com/BillBeam/adguard-agent/internal/shutdown"
 	"github.com/BillBeam/adguard-agent/internal/store"
 	"github.com/BillBeam/adguard-agent/internal/strategy"
@@ -127,6 +130,8 @@ func runWithMockLLM(matrix *strategy.StrategyMatrix, logger *slog.Logger, cfg *c
 	appealStore := store.NewAppealStore(logger, reputationMgr, "")
 	trainingPool := store.NewTrainingPool(logger, "")
 	versionMgr := strategy.NewVersionManager(logger)
+	recheckScheduler := recheck.NewRecheckScheduler(logger, "")
+	recheckHook := recheck.NewRecheckHook(recheckScheduler, matrix.GetRiskLevel, 24*time.Hour)
 	auditHook := agent.NewAuditHook(logger)
 
 	// Setup version: v1.0 active.
@@ -144,7 +149,7 @@ func runWithMockLLM(matrix *strategy.StrategyMatrix, logger *slog.Logger, cfg *c
 		reg := tool.NewReviewRegistry(client, matrix, logger)
 		executor := tool.NewExecutor(reg, logger)
 
-		hookChain := agent.NewHookChain(logger).Add(executor).Add(reviewStore).Add(trainingPool)
+		hookChain := agent.NewHookChain(logger).Add(executor).Add(reviewStore).Add(trainingPool).Add(recheckHook)
 		orchestrator := agent.NewOrchestrator(client, matrix, reg, logger)
 		orchestrator.WithModelRouter(router)
 
@@ -232,18 +237,27 @@ func runWithMockLLM(matrix *strategy.StrategyMatrix, logger *slog.Logger, cfg *c
 		fmt.Println()
 	}
 
+	// A/B comparison.
+	demoABComparison(versionMgr, reviewStore)
+
+	// Recheck stats.
+	recheckStats := recheckScheduler.Stats()
+	fmt.Printf("Rechecks: %d scheduled (%d pending, %d completed)\n",
+		recheckStats.Total, recheckStats.Pending, recheckStats.Completed)
+
 	fmt.Printf("Audit: %d hook entries\n", len(auditHook.Entries()))
 }
 
 // --- Shared helpers ---
 
 type engineStores struct {
-	reviewStore   *store.ReviewStore
-	trainingPool  *store.TrainingPool
-	appealStore   *store.AppealStore
-	reputationMgr *store.ReputationManager
-	versionMgr    *strategy.VersionManager
-	budget        *compact.TokenBudget
+	reviewStore      *store.ReviewStore
+	trainingPool     *store.TrainingPool
+	appealStore      *store.AppealStore
+	reputationMgr    *store.ReputationManager
+	versionMgr       *strategy.VersionManager
+	recheckScheduler *recheck.RecheckScheduler
+	budget           *compact.TokenBudget
 	auditHook     *agent.AuditHook
 	router        *llm.ModelRouter
 }
@@ -267,7 +281,12 @@ func buildEngine(client llm.LLMClient, matrix *strategy.StrategyMatrix, logger *
 	resultBudget := tool.NewResultBudget(filepath.Join(dataDir, "tool-results"), logger)
 	executor := tool.NewExecutor(reg, logger).WithBudget(resultBudget)
 
-	hookChain := agent.NewHookChain(logger).Add(executor).Add(reviewStore).Add(trainingPool)
+	// Scheduled recheck: re-review high-risk PASSED ads after 24h.
+	recheckScheduler := recheck.NewRecheckScheduler(logger, filepath.Join(dataDir, "rechecks.jsonl"))
+	shutdown.RegisterCleanup(func() { recheckScheduler.Flush() })
+	recheckHook := recheck.NewRecheckHook(recheckScheduler, matrix.GetRiskLevel, 24*time.Hour)
+
+	hookChain := agent.NewHookChain(logger).Add(executor).Add(reviewStore).Add(trainingPool).Add(recheckHook)
 
 	// Model routing: per-pipeline and per-role model selection.
 	router := llm.NewModelRouter(llm.DefaultRoutingConfig(), logger)
@@ -291,7 +310,8 @@ func buildEngine(client llm.LLMClient, matrix *strategy.StrategyMatrix, logger *
 	stores := &engineStores{
 		reviewStore: reviewStore, trainingPool: trainingPool,
 		appealStore: appealStore, reputationMgr: reputationMgr,
-		versionMgr: versionMgr, budget: budget, auditHook: auditHook,
+		versionMgr: versionMgr, recheckScheduler: recheckScheduler,
+		budget: budget, auditHook: auditHook,
 		router: router,
 	}
 	return engine, stores
@@ -360,9 +380,35 @@ func printReport(stores *engineStores, client llm.LLMClient) {
 			appealStats.Total, appealStats.ByOutcome[store.AppealUpheld], appealStats.ByOutcome[store.AppealOverturned])
 	}
 
+	// A/B comparison.
+	demoABComparison(stores.versionMgr, stores.reviewStore)
+
+	// Recheck stats.
+	if stores.recheckScheduler != nil {
+		recheckStats := stores.recheckScheduler.Stats()
+		fmt.Printf("Rechecks: %d scheduled (%d pending, %d completed)\n",
+			recheckStats.Total, recheckStats.Pending, recheckStats.Completed)
+	}
+
 	if client != nil {
 		fmt.Printf("\nCost: $%.6f\n", client.Usage().TotalCost())
 	}
+}
+
+func demoABComparison(vm *strategy.VersionManager, rs *store.ReviewStore) {
+	comp, err := strategy.Compare(vm, rs, strategy.DefaultABConfig(), nil)
+	if err != nil {
+		fmt.Printf("\nA/B Comparison: %s\n", err)
+		return
+	}
+	fmt.Printf("\n=== A/B Comparison: %s vs %s ===\n", comp.ActiveVersion, comp.CanaryVersion)
+	fmt.Printf("  Active:  %d reviews, pass_rate=%.0f%%, avg_conf=%.2f, FP=%d\n",
+		comp.ActiveStats.Total, comp.ActiveStats.PassRate*100,
+		comp.ActiveStats.AverageConfidence, comp.ActiveStats.FalsePositiveCount)
+	fmt.Printf("  Canary:  %d reviews, pass_rate=%.0f%%, avg_conf=%.2f, FP=%d\n",
+		comp.CanaryStats.Total, comp.CanaryStats.PassRate*100,
+		comp.CanaryStats.AverageConfidence, comp.CanaryStats.FalsePositiveCount)
+	fmt.Printf("  Recommendation: %s (%s)\n", comp.Recommendation, comp.Reason)
 }
 
 type verifyStatsResult struct{ total, agree, disagree int }

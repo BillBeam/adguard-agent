@@ -33,10 +33,11 @@ AdGuard Agent automates ad content review across global markets. The system appl
 - **Tool Result Budget** — Two-layer size control for tool results. Layer 1 (per-tool): results exceeding 32KB are persisted to disk with a 2KB inline preview featuring smart newline-boundary truncation and HTML signal extraction (title, meta description, privacy policy detection). Layer 2 (per-round): when aggregate results exceed 200KB, the largest are iteratively evicted to disk. Prevents context window explosion from large landing page HTML (50-200KB), the highest-frequency ad rejection reason.
 - **Streaming Tool Execution** — StreamingToolExecutor dispatches tools during LLM streaming response, eliminating the wait for full response completion. Go channel + goroutine as the natural equivalent of AsyncGenerator. Concurrency rules: concurrent-safe tools run in parallel, non-concurrent tools block the queue. StreamAccumulator handles OpenAI SSE chunk processing with index-based tool call accumulation — JSON fragments are concatenated (O(n)) rather than incrementally parsed (O(n²)). Automatic non-streaming fallback on connection failure or stream interruption.
 
+- **Strategy A/B Testing** — Automated comparison of canary vs active strategy versions using per-version review metrics (pass rate, avg confidence, false positive count from verification overrides). Recommendation engine: ROLLBACK if canary FP rate exceeds 2x active, PROMOTE if canary metrics equal or better, CONTINUE if insufficient data or inconclusive. Metrics computed at query time via `VersionStats()`, not pre-aggregated at write time.
+- **Scheduled Post-Approval Recheck** — Background scheduler for re-reviewing PASSED high-risk ads after a configurable delay (default 24h). Defends against adversarial landing page swaps post-approval. JSONL-persisted task queue with crash recovery: missed tasks detected on startup and executed immediately, expired tasks (>72h) auto-discarded. One-pending-per-ad invariant prevents duplicate rechecks. Integrates via PostReviewHook chain.
+
 ### Future Extensions
 
-- Strategy A/B testing with canary traffic comparison metrics
-- Scheduled post-approval recheck for adversarial landing page swaps
 - HTTP API for external integration
 - Image/video content analysis via multimodal LLM
 
@@ -188,7 +189,8 @@ internal/
   tool/              Tool system: 5 review tools + executor + registry
   compact/           Context compression + token budget
   store/             ReviewStore + Verification + Appeal + Training pool + JSONL persistence
-  strategy/          Strategy matrix + version management
+  strategy/          Strategy matrix + version management + A/B testing
+  recheck/           Scheduled post-approval recheck scheduler
 data/
   policy_kb.json     Policy knowledge base (20 TikTok-aligned policies)
   region_rules.json  Regional compliance rules (6 regions)

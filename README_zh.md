@@ -33,10 +33,11 @@ AdGuard Agent 自动化全球市场的广告内容审核。系统应用地区特
 - **工具结果预算** — 两层大小控制。Layer 1（单工具）：超过 32KB 的结果持久化到磁盘，生成 2KB 内联预览（智能换行截断 + HTML 信号提取：title、meta description、隐私政策检测）。Layer 2（单轮聚合）：聚合结果超过 200KB 时，从最大的开始迭代驱逐到磁盘。防止大型落地页 HTML（50-200KB）撑爆上下文窗口——落地页问题是广告审核最高频拒绝原因。
 - **流式工具执行** — StreamingToolExecutor 在 LLM 流式响应过程中调度工具，消除等待完整响应的延迟。Go channel + goroutine 作为 AsyncGenerator 的天然等价物。并发规则：concurrent-safe 工具并行执行，non-concurrent 工具阻塞队列。StreamAccumulator 处理 OpenAI SSE 分块，基于 index 累积 tool call 参数——JSON 碎片拼接（O(n)）而非增量解析（O(n²)）。连接失败或流中断时自动降级为非流式。
 
+- **策略 A/B 测试** — 自动对比 canary vs active 策略版本的审核指标（通过率、平均置信度、误伤次数）。推荐引擎：canary 误伤率超 active 的 2 倍→ROLLBACK，canary 指标持平或更优→PROMOTE，数据不足或不确定→CONTINUE。指标在查询时按版本过滤计算（`VersionStats()`），不在写入时预聚合。
+- **投放后定时回检** — 后台调度器对高风险 PASSED 广告在配置延迟（默认 24h）后重新审核。防御广告主通过审核后替换落地页的对抗行为。JSONL 持久化任务队列 + crash 恢复：启动时检测 missed task 立即执行，过期任务（>72h）自动丢弃。单广告单 pending 任务不变量防重复。通过 PostReviewHook 链集成。
+
 ### 未来扩展
 
-- 策略 A/B 测试，canary 流量对比指标
-- 投放后定时回检，防御落地页对抗性替换
 - HTTP API 对外集成
 - 图片/视频内容分析（多模态 LLM）
 
@@ -179,7 +180,8 @@ internal/
   tool/              工具系统：5 个审核工具 + 执行器 + 注册表
   compact/           Context 压缩 + Token 预算
   store/             ReviewStore + Verification + 申诉 + 训练数据池 + JSONL 持久化
-  strategy/          策略矩阵 + 版本管理
+  strategy/          策略矩阵 + 版本管理 + A/B 测试
+  recheck/           投放后定时回检调度器
 data/
   policy_kb.json     政策知识库（20 条 TikTok 对齐政策）
   region_rules.json  地区合规规则（6 个地区）
