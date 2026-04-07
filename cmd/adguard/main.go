@@ -96,11 +96,19 @@ func runWithRealLLM(cfg *config.Config, matrix *strategy.StrategyMatrix, logger 
 	for i := 0; i < limit; i++ {
 		ad := &samples[i].AdContent
 		stores.budget.ResetForReview()
+		// Print ad header BEFORE review starts — progress lines appear during review.
+		plan := matrix.GetReviewPlan(ad.Region, ad.Category)
+		mode := "single-agent"
+		if plan.Pipeline != "fast" {
+			mode = "multi-agent"
+		}
+		fmt.Printf("\n--- %s (%s/%s) [%s] ---\n", ad.ID, ad.Region, ad.Category, mode)
+
 		reviewWg.Add(1)
 		result, reviewErr := engine.Review(context.Background(), ad)
 		reviewWg.Done()
 		if reviewErr != nil {
-			fmt.Printf("\n--- %s --- ERROR: %s\n", ad.ID, reviewErr)
+			fmt.Printf("  ERROR: %s\n", reviewErr)
 			continue
 		}
 		printReviewResult(ad, result, samples[i].ExpectedResult, stores)
@@ -150,6 +158,13 @@ func runWithMockLLM(matrix *strategy.StrategyMatrix, logger *slog.Logger, cfg *c
 		hookChain := agent.NewHookChain(logger).Add(executor).Add(reviewStore).Add(trainingPool).Add(recheckHook)
 		orchestrator := agent.NewOrchestrator(client, matrix, reg, logger)
 		orchestrator.WithModelRouter(router)
+		orchestrator.WithProgress(func(role, phase, detail string) {
+			if phase == "start" {
+				fmt.Printf("  ├─ %-14s %s\n", role+":", detail)
+			} else {
+				fmt.Printf("  ├─ %-14s %s\n", role+":", detail)
+			}
+		})
 
 		engine := agent.NewReviewEngine(client, matrix, reg.ExportDefinitions(), executor, logger, hookChain)
 		engine.WithOrchestrator(orchestrator)
@@ -157,11 +172,19 @@ func runWithMockLLM(matrix *strategy.StrategyMatrix, logger *slog.Logger, cfg *c
 		engine.WithPhase3(nil, nil, reviewStore, nil)
 		engine.WithPhase5(trainingPool, appealStore, reputationMgr, versionMgr)
 
+		// Print ad header before review (progress lines appear during review).
+		plan := matrix.GetReviewPlan(ad.Region, ad.Category)
+		mode := "single-agent"
+		if plan.Pipeline != "fast" {
+			mode = "multi-agent"
+		}
+		fmt.Printf("\n--- %s (%s/%s) [%s] ---\n", ad.ID, ad.Region, ad.Category, mode)
+
 		reviewWg.Add(1)
 		result, reviewErr := engine.Review(context.Background(), ad)
 		reviewWg.Done()
 		if reviewErr != nil {
-			logger.Error("review failed", "ad_id", ad.ID, "error", reviewErr)
+			fmt.Printf("  ERROR: %s\n", reviewErr)
 			continue
 		}
 		if result.ReviewResult == nil {
@@ -260,6 +283,13 @@ func buildEngine(client llm.LLMClient, matrix *strategy.StrategyMatrix, logger *
 	router := llm.NewModelRouter(llm.DefaultRoutingConfig(), logger)
 	orchestrator := agent.NewOrchestrator(client, matrix, reg, logger)
 	orchestrator.WithModelRouter(router)
+	orchestrator.WithProgress(func(role, phase, detail string) {
+		if phase == "start" {
+			fmt.Printf("  ├─ %-14s %s\n", role+":", detail)
+		} else {
+			fmt.Printf("  ├─ %-14s %s\n", role+":", detail)
+		}
+	})
 
 	ctxMgr := compact.NewContextManager(compact.DefaultCompactConfig(), client, logger)
 	budget := compact.NewTokenBudget(compact.DefaultBudgetConfig())
@@ -294,30 +324,12 @@ func printBanner() {
 
 func printReviewResult(ad *types.AdContent, result *agent.LoopResult, expected string, stores *engineStores) {
 	if result.ReviewResult == nil {
-		fmt.Printf("\n--- %s (%s/%s) ---\n", ad.ID, ad.Region, ad.Category)
 		fmt.Printf("  (no result — %s)\n", result.ExitReason)
 		return
 	}
 	rr := result.ReviewResult
-	plan := "single-agent"
-	if result.MultiAgentDetail != nil {
-		plan = "multi-agent"
-	}
 
-	fmt.Printf("\n--- %s (%s/%s) [%s] ---\n", ad.ID, ad.Region, ad.Category, plan)
-
-	// Show per-specialist decisions if multi-agent.
-	if mad := result.MultiAgentDetail; mad != nil {
-		for i, ar := range mad.AgentResults {
-			prefix := "├─"
-			if i == len(mad.AgentResults)-1 {
-				prefix = "└─"
-			}
-			fmt.Printf("  %s %-14s %-15s conf=%.2f\n",
-				prefix, ar.Role+":", ar.Decision, ar.Confidence)
-		}
-	}
-
+	// Per-specialist decisions already printed in real-time via orchestrator progress callback.
 	// Show streaming metrics if available.
 	if sm := result.State.StreamMetrics; sm != nil && sm.ToolsDispatched > 0 {
 		fmt.Printf("  Streaming: %d tools, collect_wait=%s\n",

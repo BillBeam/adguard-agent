@@ -28,12 +28,17 @@ import (
 //  2. Collect AgentResults from all 3
 //  3. Run AdjudicatorAgent with collected results as input
 //  4. Return final ReviewResult with full QueryChain
+// ProgressFunc is called by the orchestrator when a specialist starts or completes.
+// Enables real-time progress display during multi-agent review.
+type ProgressFunc func(role string, phase string, detail string)
+
 type Orchestrator struct {
-	client   llm.LLMClient
-	matrix   *strategy.StrategyMatrix
-	registry *tool.Registry
-	router   *llm.ModelRouter // nil = use client default
-	logger   *slog.Logger
+	client     llm.LLMClient
+	matrix     *strategy.StrategyMatrix
+	registry   *tool.Registry
+	router     *llm.ModelRouter  // nil = use client default
+	onProgress ProgressFunc      // nil = no progress reporting
+	logger     *slog.Logger
 }
 
 // NewOrchestrator creates a Multi-Agent orchestrator.
@@ -49,6 +54,12 @@ func NewOrchestrator(
 		registry: registry,
 		logger:   logger,
 	}
+}
+
+// WithProgress attaches a progress callback for real-time specialist status display.
+func (o *Orchestrator) WithProgress(fn ProgressFunc) *Orchestrator {
+	o.onProgress = fn
+	return o
 }
 
 // WithModelRouter attaches model routing for per-agent model selection.
@@ -109,7 +120,14 @@ func (o *Orchestrator) RunMultiAgent(ctx context.Context, ad *types.AdContent, p
 	)
 
 	// Phase 2: Run Adjudicator.
+	if o.onProgress != nil {
+		o.onProgress("adjudicator", "start", "synthesizing...")
+	}
 	adjResult := o.runAdjudicator(ctx, ad, agentResults, plan, chain, chainLog)
+	if o.onProgress != nil {
+		o.onProgress("adjudicator", "complete",
+			fmt.Sprintf("%-15s conf=%.2f  (%s)", adjResult.Decision, adjResult.Confidence, adjResult.Duration.Round(time.Millisecond)))
+	}
 
 	// Phase 3: Build final ReviewResult from Adjudicator output.
 	result := o.buildFinalResult(ad, adjResult, agentResults, start)
@@ -138,7 +156,15 @@ func (o *Orchestrator) runSpecialists(
 	for i, spec := range specs {
 		go func(idx int, s AgentSpec) {
 			defer wg.Done()
+			if o.onProgress != nil {
+				o.onProgress(string(s.Role), "start", "analyzing...")
+			}
 			results[idx] = o.runSingleAgent(ctx, ad, policies, plan, s, chain.Child(), chainLog)
+			ar := results[idx]
+			if o.onProgress != nil {
+				o.onProgress(string(s.Role), "complete",
+					fmt.Sprintf("%-15s conf=%.2f  (%s)", ar.Decision, ar.Confidence, ar.Duration.Round(time.Millisecond)))
+			}
 		}(i, spec)
 	}
 
