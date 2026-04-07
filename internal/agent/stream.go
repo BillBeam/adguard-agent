@@ -19,6 +19,12 @@ const (
 	EventCompactStarted   EventType = "compact_started"
 	EventCompactCompleted EventType = "compact_completed"
 	EventBudgetWarning    EventType = "budget_warning"
+
+	// Streaming events.
+	EventStreamStarted        EventType = "stream_started"          // SSE connection established
+	EventStreamToolDispatched EventType = "stream_tool_dispatched"  // tool submitted during streaming
+	EventStreamToolCompleted  EventType = "stream_tool_completed"   // tool finished during streaming
+	EventStreamFallback       EventType = "stream_fallback"         // fell back to non-streaming
 )
 
 // StreamEvent is an event emitted during the agentic loop execution.

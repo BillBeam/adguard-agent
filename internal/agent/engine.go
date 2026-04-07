@@ -276,12 +276,21 @@ func (e *ReviewEngine) Review(ctx context.Context, ad *types.AdContent) (*LoopRe
 	go func() {
 		defer close(done)
 		for ev := range events {
-			e.logger.Debug("loop event",
-				slog.String("type", string(ev.Type)),
-				slog.String("state", string(ev.State)),
-				slog.Int("turn", ev.TurnCount),
-				slog.String("detail", ev.Detail),
-			)
+			// Streaming events at INFO level for demo observability.
+			if ev.Type == EventStreamStarted || ev.Type == EventStreamToolDispatched ||
+				ev.Type == EventStreamToolCompleted || ev.Type == EventStreamFallback {
+				e.logger.Info("stream",
+					slog.String("event", string(ev.Type)),
+					slog.String("detail", ev.Detail),
+				)
+			} else {
+				e.logger.Debug("loop event",
+					slog.String("type", string(ev.Type)),
+					slog.String("state", string(ev.State)),
+					slog.Int("turn", ev.TurnCount),
+					slog.String("detail", ev.Detail),
+				)
+			}
 		}
 	}()
 

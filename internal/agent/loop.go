@@ -525,45 +525,82 @@ func callAPIStreaming(
 	req := buildRequest(config, state)
 	req.Stream = true
 
+	streamStart := time.Now()
 	stream, err := client.StreamChatCompletion(ctx, req)
 	if err != nil || stream == nil {
-		// Streaming connection failed or unsupported → fall back to non-streaming.
 		if err != nil {
 			logger.Warn("streaming connection failed, falling back to non-streaming",
 				slog.String("error", err.Error()))
 		} else {
 			logger.Warn("streaming returned nil reader, falling back to non-streaming")
 		}
+		emitEvent(events, EventStreamFallback, state, "connection failed")
 		req.Stream = false
 		resp, err := client.ChatCompletion(ctx, req)
 		return resp, nil, err
 	}
 	defer stream.Close()
+	emitEvent(events, EventStreamStarted, state, "")
 
 	executor := NewStreamingToolExecutor(config.ToolExecutor, nil, logger)
 	accumulator := NewStreamAccumulator(executor, logger)
 
+	prevToolCount := 0
 	for {
 		chunk, err := stream.Recv()
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
-			// Stream interrupted mid-response → fall back to non-streaming.
 			logger.Warn("stream interrupted, falling back to non-streaming",
 				slog.String("error", err.Error()))
+			emitEvent(events, EventStreamFallback, state, "stream interrupted")
 			req.Stream = false
 			resp, err := client.ChatCompletion(ctx, req)
 			return resp, nil, err
 		}
 		accumulator.ProcessChunk(chunk)
+
+		// Emit events for tools dispatched during streaming.
+		if newCount := executor.ToolCount(); newCount > prevToolCount {
+			for i := prevToolCount; i < newCount; i++ {
+				emitEvent(events, EventStreamToolDispatched, state,
+					fmt.Sprintf("tool dispatched during stream (%s elapsed)",
+						time.Since(streamStart).Round(time.Millisecond)))
+			}
+			prevToolCount = newCount
+		}
 	}
 	accumulator.Finalize()
+
+	// Check for tools dispatched by Finalize (last tool call in stream).
+	if newCount := executor.ToolCount(); newCount > prevToolCount {
+		for i := prevToolCount; i < newCount; i++ {
+			emitEvent(events, EventStreamToolDispatched, state,
+				fmt.Sprintf("tool dispatched at stream end (%s elapsed)",
+					time.Since(streamStart).Round(time.Millisecond)))
+		}
+	}
+
+	streamDuration := time.Since(streamStart)
 
 	// Collect results from tools that executed during streaming.
 	var toolResults []types.Message
 	if executor.ToolCount() > 0 {
+		collectStart := time.Now()
 		toolResults = executor.CollectResults(ctx)
+		collectWait := time.Since(collectStart)
+
+		logger.Info("streaming tool execution summary",
+			slog.Int("tools", executor.ToolCount()),
+			slog.Duration("stream_duration", streamDuration),
+			slog.Duration("collect_wait", collectWait),
+		)
+
+		// If collect_wait is near zero, tools finished DURING streaming — the optimization worked.
+		for _, tr := range toolResults {
+			emitEvent(events, EventStreamToolCompleted, state, tr.ToolCallID)
+		}
 	}
 
 	resp := accumulator.BuildResponse()
