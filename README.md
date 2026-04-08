@@ -28,7 +28,7 @@ AdGuard Agent automates ad content review across global markets. The system appl
 - **Advertiser Reputation** — Trust score tracking linked to appeal outcomes. OVERTURNED raises trust, UPHELD lowers trust and increments violations. Risk categorization: trusted/standard/flagged/probation.
 - **Graceful Shutdown** — SIGINT/SIGTERM handler with cleanup registry and 5-second failsafe timer. Waits for in-flight reviews to complete, then flushes all JSONL stores before exit.
 - **JSONL Persistence** — Append-only JSONL files for crash-safe review data persistence. Each store (ReviewStore, AppealStore, TrainingPool) maintains its own file. On startup, existing records are recovered by replaying the log; corrupted lines from mid-write crashes are silently skipped.
-- **Model Routing** — Per-pipeline and per-agent-role model selection via a 2-level routing matrix. xAI model tiering: `fast→grok-4-1-fast-non-reasoning` (cheapest, no reasoning for low-risk), `standard→grok-4-1-fast-reasoning` (balanced), `comprehensive→grok-4.20-multi-agent-0309` (multi-agent optimized), `adjudicator→grok-4.20-0309-reasoning` (strongest reasoning). Cross-provider fallback chain: `grok-4.20-*→grok-4-1-fast-reasoning→gpt-4o`.
+- **Model Routing** — Per-pipeline and per-agent-role model selection via a 2-level routing matrix. xAI 3-tier model hierarchy: `fast→grok-4-1-fast-non-reasoning` (cheapest, no reasoning for low-risk), `standard→grok-4-1-fast-reasoning` (balanced), `comprehensive/adjudicator/appeal→grok-4.20-0309-reasoning` (strongest reasoning). Cross-provider fallback chain: `grok-4.20-0309-reasoning→grok-4-1-fast-reasoning→gpt-4o`.
 - **529 Overload Fallback** — Tracks consecutive 529 (overloaded) errors. After 3 consecutive 529s, automatically retries with the degraded model from the fallback chain. Prevents review pipeline stalling during provider capacity issues.
 - **Tool Result Budget** — Two-layer size control for tool results. Layer 1 (per-tool): results exceeding 32KB are persisted to disk with a 2KB inline preview featuring smart newline-boundary truncation and HTML signal extraction (title, meta description, privacy policy detection). Layer 2 (per-round): when aggregate results exceed 200KB, the largest are iteratively evicted to disk. Prevents context window explosion from large landing page HTML (50-200KB), the highest-frequency ad rejection reason.
 - **Streaming Tool Execution** — StreamingToolExecutor dispatches tools during LLM streaming response, eliminating the wait for full response completion. Go channel + goroutine as the natural equivalent of AsyncGenerator. Concurrency rules: concurrent-safe tools run in parallel, non-concurrent tools block the queue. StreamAccumulator handles OpenAI SSE chunk processing with index-based tool call accumulation — JSON fragments are concatenated (O(n)) rather than incrementally parsed (O(n²)). Automatic non-streaming fallback on connection failure or stream interruption.
@@ -74,61 +74,79 @@ go run ./cmd/adguard/
 LLM_API_KEY=your_key go run ./cmd/adguard/
 ```
 
-## Real LLM Output (grok-4-1-fast-reasoning)
+## Real LLM Output
 
-Three ads reviewed end-to-end with Multi-Agent orchestration. Total cost: **$0.15**.
+Three ads reviewed end-to-end with Multi-Agent orchestration (xAI grok models). Total cost: **$0.003**.
 
 ```
-=== Real LLM Review (3 ads) ===
+╔══════════════════════════════════════════════════════╗
+║  AdGuard Agent — Ad Content Safety Review System     ║
+║  16K lines Go  |  7 upgrades  |  Multi-Agent         ║
+╚══════════════════════════════════════════════════════╝
+=== Model Routing ===
+  fast                   → grok-4-1-fast-non-reasoning
+  standard               → grok-4-1-fast-reasoning
+  comprehensive          → grok-4.20-0309-reasoning
+  adjudicator            → grok-4.20-0309-reasoning
+  appeal                 → grok-4.20-0309-reasoning
+  fallback chain: grok-4.20-0309-reasoning → grok-4-1-fast-reasoning → gpt-4o
 
---- ad_001 (US/healthcare) — "Miracle Cure for Diabetes, FDA Approved" ---
-Pipeline: standard/multi-agent
-  ContentAgent:  REJECTED  conf=1.00  (33.9s — detected unverified medical claims)
-  PolicyAgent:   REJECTED  conf=1.00  (15.0s — matched POL_001, POL_002)
-  RegionAgent:   REJECTED  conf=1.00  (14.3s — landing page compliance issues)
-  Adjudicator:   REJECTED  conf=1.00  (3:0 unanimous)
-  Verification:  confirmed ✓
-  → Final: REJECTED  conf=1.00  (expected: REJECTED ✓)
+=== Review: 3 ads ===
 
---- ad_002 (US/finance) — "Premium Investment Advisory Services" ---
-Pipeline: standard/multi-agent
-  ContentAgent:  PASSED    conf=1.00  (compliant financial services copy)
-  PolicyAgent:   PASSED    conf=0.95  (meets disclosure requirements)
-  RegionAgent:   MANUAL    conf=0.85  (flagged for additional regional check)
-  Adjudicator:   PASSED    conf=0.85  (2:1 majority PASSED, L3 reduced confidence)
-  → Final: PASSED   conf=0.72  (expected: PASSED ✓)
+--- ad_001 (US/healthcare) [multi-agent] ---
+  ├─ region:        analyzing...
+  ├─ content:       analyzing...
+  ├─ policy:        analyzing...
+  ├─ policy:        REJECTED        conf=1.00  (15.902s)
+  ├─ region:        REJECTED        conf=1.00  (17.304s)
+  ├─ content:       REJECTED        conf=1.00  (22.661s)
+  ├─ adjudicator:   synthesizing...
+  ├─ adjudicator:   REJECTED        conf=1.00  (7.812s)
+  Verification: confirmed
+  → REJECTED  conf=1.00  30.474s  (expected: REJECTED)
 
---- ad_003 (EU/healthcare) — "Clinical Trial Results for Joint Pain Relief" ---
-Pipeline: comprehensive/multi-agent
-  ContentAgent:  PASSED    conf=0.85  (claims appear substantiated)
-  PolicyAgent:   PASSED    conf=0.95  (compliant with EU health claims regulation)
-  RegionAgent:   MANUAL    conf=0.85  (EU strict region flagged for review)
-  Adjudicator:   MANUAL    conf=0.85  (2:1, L3 reduced confidence)
-  → Final: PASSED   conf=0.72  (expected: PASSED ✓)
+--- ad_002 (US/finance) [multi-agent] ---
+  ├─ region:        analyzing...
+  ├─ content:       analyzing...
+  ├─ policy:        analyzing...
+  ├─ region:        PASSED          conf=1.00  (10.389s)
+  ├─ policy:        PASSED          conf=1.00  (17.473s)
+  ├─ content:       PASSED          conf=1.00  (17.999s)
+  ├─ adjudicator:   synthesizing...
+  ├─ adjudicator:   PASSED          conf=1.00  (2.519s)
+  Recheck: 24h scheduled (high-risk PASSED)
+  → PASSED  conf=1.00  20.519s  (expected: PASSED)
 
---- Appeal: ad_001 ---
-  Advertiser submitted: "We believe this ad complies with all policies"
-  Appeal Agent decision: PARTIAL (recommend further review)
-  → Outcome: PARTIAL
+--- ad_003 (EU/healthcare) [multi-agent] ---
+  ├─ region:        analyzing...
+  ├─ policy:        analyzing...
+  ├─ content:       analyzing...
+  ├─ policy:        MANUAL_REVIEW   conf=0.70  (25.941s)
+  ├─ region:        MANUAL_REVIEW   conf=0.65  (26.05s)
+  ├─ content:       MANUAL_REVIEW   conf=0.80  (33.057s)
+  ├─ adjudicator:   synthesizing...
+  ├─ adjudicator:   MANUAL_REVIEW   conf=0.85  (6.014s)
+  → MANUAL_REVIEW  conf=0.90  39.072s  (expected: PASSED)
 
---- Strategy Version ---
-  v1.0: ACTIVE (100% traffic)
-  v2.0: CANARY (10% traffic)
+  Version: v1.0 active, v2.0 canary (10%)
 
-=== ReviewStore Summary (3 reviews) ===
-  PASSED: 2 | REJECTED: 1 | MANUAL_REVIEW: 0
-  Avg confidence: 0.81 | Pass rate: 66.7%
-  Verified: 1 (1 agree, 0 override)
-  Training Pool: 1 record (high-confidence review sample)
-  Appeals: 1 (PARTIAL)
-  Cost: $0.15
+=== Feature Showcase ===
+  ✓ Graceful Shutdown     SIGINT/SIGTERM → wait in-flight → flush JSONL → 5s failsafe
+  ✓ JSONL Persistence     78 reviews persisted (crash-safe, append-only)
+  ✓ Model Routing         per-pipeline×role routing + 529 cross-provider fallback
+  ✓ Tool Result Budget    2-layer: per-tool 32KB + per-round 200KB, disk fallback
+  ✓ Streaming Executor    tools dispatch during LLM stream (channel+goroutine)
+  ✓ Strategy A/B          v1.0 vs v2.0 → CONTINUE
+  ✓ Scheduled Recheck     1 pending, 0 completed
+
+  Total Cost: $0.0028
 ```
 
 **Key observations:**
-- **ad_001**: 3:0 unanimous REJECTED with confidence=1.0. Verification confirmed. This is a textbook violation case (unverified medical claim + false FDA approval).
-- **ad_002**: 2:1 split (Content+Policy PASSED, Region MANUAL_REVIEW). L3 cross-validation reduced confidence from 0.85 to 0.72. Conservative but correct.
-- **ad_003**: Similar 2:1 split. EU strict region causes RegionAgent to flag for review. Adjudicator + L3 control produced a cautious PASSED.
-- **Appeal**: ad_001 advertiser appealed. Appeal Agent independently reviewed and recommended PARTIAL (some violations valid, some debatable). The appeal system works end-to-end.
+- **ad_001**: 3:0 unanimous REJECTED with confidence=1.0. Verification confirmed. Textbook violation (unverified medical claim + false FDA approval). 3 specialists run in parallel via goroutines (policy finishes first at 15.9s, content last at 22.7s), then adjudicator synthesizes.
+- **ad_002**: 3:0 unanimous PASSED with confidence=1.0. Scheduled for 24h post-approval recheck (high-risk finance category) — defends against adversarial landing page swap.
+- **ad_003**: 3:0 MANUAL_REVIEW — EU strict healthcare region causes all three specialists to flag for human review (region conf=0.65, policy conf=0.70, content conf=0.80). Adjudicator aggregates to conf=0.85. This is the fail-closed design working correctly: when uncertain, escalate rather than auto-approve.
+- **Feature Showcase**: JSONL persistence count (78) accumulates across runs, demonstrating crash-safe append-only durability. A/B recommendation is CONTINUE (insufficient canary data for conclusive comparison).
 
 ## Configuration
 
@@ -140,12 +158,12 @@ Environment variables (highest priority):
 | `LLM_BASE_URL` | `https://api.x.ai/v1` | API endpoint |
 | `LLM_MODEL` | `grok-4-1-fast-reasoning` | Model identifier |
 | `LLM_API_KEY` | — | API key (required for real LLM mode) |
-| `LOG_LEVEL` | `info` | Log level (debug/info/warn/error) |
+| `LOG_LEVEL` | `warn` | Log level (debug/info/warn/error) |
 | `DATA_DIR` | `data` | Path to data directory |
 
-Model routing is configured via `RoutingConfig` in code (see `llm/router.go:DefaultRoutingConfig`). Routes and fallbacks can be customized via `config.json` under the `"routing"` key.
+Model routing is configured via `RoutingConfig` in code (see `internal/llm/router.go:DefaultRoutingConfig`).
 
-Config file (`config.json` in project root) and built-in defaults provide fallback values.
+Config file (`config.json` in project root, optional) and built-in defaults provide fallback values.
 
 ## Project Structure
 

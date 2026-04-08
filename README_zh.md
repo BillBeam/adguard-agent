@@ -28,7 +28,7 @@ AdGuard Agent 自动化全球市场的广告内容审核。系统应用地区特
 - **广告主信誉** — 信任评分与申诉结果联动。OVERTURNED 提升信任，UPHELD 降低信任并累计违规。风险分类：trusted/standard/flagged/probation。
 - **优雅退出** — SIGINT/SIGTERM 信号处理，含清理函数注册表和 5 秒 failsafe 计时器。等待 in-flight 审核完成后刷盘所有 JSONL 存储。
 - **JSONL 持久化** — 追加写入 JSONL 文件实现 crash-safe 审核数据持久化。每个 Store（ReviewStore、AppealStore、TrainingPool）维护独立文件。启动时通过重放日志恢复已有记录；crash 导致的残行静默跳过。
-- **模型路由** — 基于 pipeline × agent role 的 2 级路由矩阵选择模型。xAI 模型分层：`fast→grok-4-1-fast-non-reasoning`（最便宜，低风险无需推理）、`standard→grok-4-1-fast-reasoning`（平衡）、`comprehensive→grok-4.20-multi-agent-0309`（多 Agent 优化）、`adjudicator→grok-4.20-0309-reasoning`（最强推理）。跨 Provider 降级链：`grok-4.20-*→grok-4-1-fast-reasoning→gpt-4o`。
+- **模型路由** — 基于 pipeline × agent role 的 2 级路由矩阵选择模型。xAI 3 档模型分层：`fast→grok-4-1-fast-non-reasoning`（最便宜，低风险无需推理）、`standard→grok-4-1-fast-reasoning`（平衡）、`comprehensive/adjudicator/appeal→grok-4.20-0309-reasoning`（最强推理）。跨 Provider 降级链：`grok-4.20-0309-reasoning→grok-4-1-fast-reasoning→gpt-4o`。
 - **529 过载降级** — 追踪连续 529（过载）错误。3 次连续 529 后自动使用降级链中的备选模型重试。防止审核管线在 Provider 容量不足时停摆。
 - **工具结果预算** — 两层大小控制。Layer 1（单工具）：超过 32KB 的结果持久化到磁盘，生成 2KB 内联预览（智能换行截断 + HTML 信号提取：title、meta description、隐私政策检测）。Layer 2（单轮聚合）：聚合结果超过 200KB 时，从最大的开始迭代驱逐到磁盘。防止大型落地页 HTML（50-200KB）撑爆上下文窗口——落地页问题是广告审核最高频拒绝原因。
 - **流式工具执行** — StreamingToolExecutor 在 LLM 流式响应过程中调度工具，消除等待完整响应的延迟。Go channel + goroutine 作为 AsyncGenerator 的天然等价物。并发规则：concurrent-safe 工具并行执行，non-concurrent 工具阻塞队列。StreamAccumulator 处理 OpenAI SSE 分块，基于 index 累积 tool call 参数——JSON 碎片拼接（O(n)）而非增量解析（O(n²)）。连接失败或流中断时自动降级为非流式。
@@ -74,54 +74,72 @@ go run ./cmd/adguard/
 LLM_API_KEY=your_key go run ./cmd/adguard/
 ```
 
-## 真实 LLM 输出（grok-4-1-fast-reasoning）
+## 真实 LLM 输出
 
-3 条广告端到端 Multi-Agent 审核，总 cost：**$0.15**。
+3 条广告端到端 Multi-Agent 审核（xAI grok 模型），总 cost：**$0.003**。
 
 ```
-=== 真实 LLM 审核 (3 条广告) ===
+╔══════════════════════════════════════════════════════╗
+║  AdGuard Agent — Ad Content Safety Review System     ║
+║  16K lines Go  |  7 upgrades  |  Multi-Agent         ║
+╚══════════════════════════════════════════════════════╝
+=== Model Routing ===
+  fast                   → grok-4-1-fast-non-reasoning
+  standard               → grok-4-1-fast-reasoning
+  comprehensive          → grok-4.20-0309-reasoning
+  adjudicator            → grok-4.20-0309-reasoning
+  appeal                 → grok-4.20-0309-reasoning
+  fallback chain: grok-4.20-0309-reasoning → grok-4-1-fast-reasoning → gpt-4o
 
---- ad_001 (US/healthcare) — "Miracle Cure for Diabetes, FDA Approved" ---
-链路: standard/multi-agent
-  内容Agent:   REJECTED  conf=1.00  (33.9s — 检出虚假医疗声明)
-  政策Agent:   REJECTED  conf=1.00  (15.0s — 匹配 POL_001, POL_002)
-  地区Agent:   REJECTED  conf=1.00  (14.3s — 落地页合规问题)
-  仲裁Agent:   REJECTED  conf=1.00  (3:0 全票一致)
-  回检:        confirmed ✓
-  → 最终: REJECTED  conf=1.00  (期望: REJECTED ✓)
+=== Review: 3 ads ===
 
---- ad_002 (US/finance) — "Premium Investment Advisory Services" ---
-链路: standard/multi-agent
-  内容Agent:   PASSED    conf=1.00  (合规金融服务文案)
-  政策Agent:   PASSED    conf=0.95  (满足披露要求)
-  地区Agent:   MANUAL    conf=0.85  (标记需要额外地区检查)
-  仲裁Agent:   PASSED    conf=0.85  (2:1 多数通过, L3 降低置信度)
-  → 最终: PASSED   conf=0.72  (期望: PASSED ✓)
+--- ad_001 (US/healthcare) [multi-agent] ---
+  ├─ region:        analyzing...
+  ├─ content:       analyzing...
+  ├─ policy:        analyzing...
+  ├─ policy:        REJECTED        conf=1.00  (15.902s)
+  ├─ region:        REJECTED        conf=1.00  (17.304s)
+  ├─ content:       REJECTED        conf=1.00  (22.661s)
+  ├─ adjudicator:   synthesizing...
+  ├─ adjudicator:   REJECTED        conf=1.00  (7.812s)
+  Verification: confirmed
+  → REJECTED  conf=1.00  30.474s  (expected: REJECTED)
 
---- ad_003 (EU/healthcare) — "Clinical Trial Results for Joint Pain Relief" ---
-链路: comprehensive/multi-agent
-  内容Agent:   PASSED    conf=0.85  (声明有临床依据)
-  政策Agent:   PASSED    conf=0.95  (符合 EU 健康声明法规)
-  地区Agent:   MANUAL    conf=0.85  (EU 严格地区标记审查)
-  仲裁Agent:   MANUAL    conf=0.85  (2:1, L3 降低置信度)
-  → 最终: PASSED   conf=0.72  (期望: PASSED ✓)
+--- ad_002 (US/finance) [multi-agent] ---
+  ├─ region:        analyzing...
+  ├─ content:       analyzing...
+  ├─ policy:        analyzing...
+  ├─ region:        PASSED          conf=1.00  (10.389s)
+  ├─ policy:        PASSED          conf=1.00  (17.473s)
+  ├─ content:       PASSED          conf=1.00  (17.999s)
+  ├─ adjudicator:   synthesizing...
+  ├─ adjudicator:   PASSED          conf=1.00  (2.519s)
+  Recheck: 24h scheduled (high-risk PASSED)
+  → PASSED  conf=1.00  20.519s  (expected: PASSED)
 
---- 申诉: ad_001 ---
-  广告主提交: "我们认为该广告符合所有政策"
-  申诉Agent判定: PARTIAL (建议进一步审查)
-  → 结果: PARTIAL
+--- ad_003 (EU/healthcare) [multi-agent] ---
+  ├─ region:        analyzing...
+  ├─ policy:        analyzing...
+  ├─ content:       analyzing...
+  ├─ policy:        MANUAL_REVIEW   conf=0.70  (25.941s)
+  ├─ region:        MANUAL_REVIEW   conf=0.65  (26.05s)
+  ├─ content:       MANUAL_REVIEW   conf=0.80  (33.057s)
+  ├─ adjudicator:   synthesizing...
+  ├─ adjudicator:   MANUAL_REVIEW   conf=0.85  (6.014s)
+  → MANUAL_REVIEW  conf=0.90  39.072s  (expected: PASSED)
 
---- 策略版本 ---
-  v1.0: ACTIVE (100% 流量)
-  v2.0: CANARY (10% 流量)
+  Version: v1.0 active, v2.0 canary (10%)
 
-=== ReviewStore 统计 (3 条审核) ===
-  通过: 2 | 拒绝: 1 | 人工审核: 0
-  平均置信度: 0.81 | 通过率: 66.7%
-  回检: 1 (1 确认, 0 推翻)
-  训练数据: 1 条 (高置信度审核样本)
-  申诉: 1 (PARTIAL)
-  总 Cost: $0.15
+=== Feature Showcase ===
+  ✓ Graceful Shutdown     SIGINT/SIGTERM → wait in-flight → flush JSONL → 5s failsafe
+  ✓ JSONL Persistence     78 reviews persisted (crash-safe, append-only)
+  ✓ Model Routing         per-pipeline×role routing + 529 cross-provider fallback
+  ✓ Tool Result Budget    2-layer: per-tool 32KB + per-round 200KB, disk fallback
+  ✓ Streaming Executor    tools dispatch during LLM stream (channel+goroutine)
+  ✓ Strategy A/B          v1.0 vs v2.0 → CONTINUE
+  ✓ Scheduled Recheck     1 pending, 0 completed
+
+  Total Cost: $0.0028
 ```
 
 ## 配置
@@ -134,10 +152,12 @@ LLM_API_KEY=your_key go run ./cmd/adguard/
 | `LLM_BASE_URL` | `https://api.x.ai/v1` | API 端点 |
 | `LLM_MODEL` | `grok-4-1-fast-reasoning` | 模型标识 |
 | `LLM_API_KEY` | — | API 密钥（真实 LLM 模式必需） |
-| `LOG_LEVEL` | `info` | 日志级别（debug/info/warn/error） |
+| `LOG_LEVEL` | `warn` | 日志级别（debug/info/warn/error） |
 | `DATA_DIR` | `data` | 数据目录路径 |
 
-配置文件（项目根目录 `config.json`）和内置默认值作为兜底。
+模型路由通过代码中的 `RoutingConfig` 配置（见 `internal/llm/router.go:DefaultRoutingConfig`）。
+
+配置文件（项目根目录 `config.json`，可选）和内置默认值作为兜底。
 
 ## 项目结构
 
