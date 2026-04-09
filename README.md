@@ -232,13 +232,12 @@ internal/
   llm/               LLM client, retry, usage tracking, model router
   config/            Configuration loading (env > file > defaults)
   shutdown/          Graceful shutdown with cleanup registry
-  strategy/          Strategy matrix engine (policy x region -> review plan)
+  strategy/          Strategy matrix engine + version management + A/B testing
   agent/             Agentic loop, state machine, recovery, stream events
   agent/mock/        Mock LLM client and tool executor (for testing)
   tool/              Tool system: 5 review tools + executor + registry
   compact/           Context compression + token budget
   store/             ReviewStore + Verification + Appeal + Training pool + JSONL persistence
-  strategy/          Strategy matrix + version management + A/B testing
   recheck/           Scheduled post-approval recheck scheduler
 data/
   policy_kb.json     Policy knowledge base (20 platform-aligned advertising policies)
@@ -246,8 +245,3 @@ data/
   category_risk.json Category -> risk level mapping (23 categories)
   samples/           Test ad samples (15 samples)
 ```
-
-## Roadmap
-
-- HTTP API for external integration
-- Image/video content analysis via multimodal LLM

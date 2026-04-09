@@ -232,13 +232,12 @@ internal/
   llm/               LLM 客户端、重试、用量追踪、模型路由器
   config/            配置加载（env > file > defaults）
   shutdown/          优雅退出 + 清理函数注册表
-  strategy/          策略矩阵引擎（策略 × 地区 → 审核方案）
+  strategy/          策略矩阵引擎 + 版本管理 + A/B 测试
   agent/             Agentic Loop、状态机、恢复机制、流事件
   agent/mock/        Mock LLM 客户端和工具执行器（测试用）
   tool/              工具系统：5 个审核工具 + 执行器 + 注册表
   compact/           Context 压缩 + Token 预算
   store/             ReviewStore + Verification + 申诉 + 训练数据池 + JSONL 持久化
-  strategy/          策略矩阵 + 版本管理 + A/B 测试
   recheck/           投放后定时回检调度器
 data/
   policy_kb.json     政策知识库（20 条平台对齐广告政策）
@@ -246,8 +245,3 @@ data/
   category_risk.json 品类 → 风险等级映射（23 个品类）
   samples/           测试广告样本（15 条）
 ```
-
-## 路线图
-
-- HTTP API 对外集成
-- 图片/视频内容分析（多模态 LLM）
