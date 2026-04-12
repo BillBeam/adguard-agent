@@ -1,0 +1,72 @@
+
+╔══════════════════════════════════════════════════════╗
+║  AdGuard Agent — Ad Content Safety Review System     ║
+║  Multi-Agent  |  6 tools  |  Agent Hooks             ║
+╚══════════════════════════════════════════════════════╝
+=== Model Routing ===
+  fast                   → grok-4-1-fast-non-reasoning
+  standard               → grok-4-1-fast-reasoning
+  comprehensive          → grok-4.20-0309-reasoning
+  adjudicator            → grok-4.20-0309-reasoning
+  appeal                 → grok-4.20-0309-reasoning
+  fallback chain: grok-4.20-0309-reasoning → grok-4-1-fast-reasoning → gpt-4o
+
+=== Review: 3 ads ===
+
+--- ad_001 (US/healthcare) [multi-agent] ---
+  ├─ coordinator:   directing review...
+  ├─ content:       analyzing...
+  ├─ policy:        analyzing...
+  ├─ region:        analyzing...
+  ├─ content:       REJECTED        conf=0.95  (15.894s)
+  ├─ region:        REJECTED        conf=1.00  (19.069s)
+  ├─ policy:        REJECTED        conf=0.95  (20.802s)
+  ├─ coordinator:   REJECTED        conf=0.97  (33.893s)
+  Verification: override
+  → MANUAL_REVIEW  conf=0.97  33.894s  (expected: REJECTED)
+
+--- ad_002 (US/finance) [multi-agent] ---
+  ├─ coordinator:   directing review...
+  ├─ content:       analyzing...
+  ├─ policy:        analyzing...
+  ├─ region:        analyzing...
+  ├─ region:        PASSED          conf=0.95  (14.46s)
+  ├─ content:       PASSED          conf=1.00  (15.907s)
+  ├─ policy:        PASSED          conf=0.95  (16.995s)
+  ├─ coordinator:   PASSED          conf=0.97  (25.804s)
+  Recheck: 24h scheduled (high-risk PASSED)
+  → PASSED  conf=0.97  25.804s  (expected: PASSED)
+
+--- ad_003 (EU/healthcare) [multi-agent] ---
+  ├─ coordinator:   directing review...
+  ├─ content:       analyzing...
+  ├─ policy:        analyzing...
+  ├─ region:        analyzing...
+  ├─ policy:        MANUAL_REVIEW   conf=0.82  (21.109s)
+  ├─ region:        MANUAL_REVIEW   conf=0.78  (22.882s)
+  ├─ content:       MANUAL_REVIEW   conf=0.80  (24.841s)
+  ├─ coordinator:   MANUAL_REVIEW   conf=0.80  (40.701s)
+  → MANUAL_REVIEW  conf=0.85  40.701s  (expected: PASSED)
+
+  Appeal: ad_001 → PARTIAL
+
+  Version: v1.0 active, v2.0 canary (10%)
+
+=== Monitor Report ===
+  Reviews: 3 | Rejection rate: 33% | Avg confidence: 0.93 | Override rate: 100%
+  Recommendations:
+    - No anomalies detected — system operating normally
+
+=== Feature Showcase ===
+  ✓ Graceful Shutdown     SIGINT/SIGTERM → wait in-flight → flush JSONL → 5s failsafe
+  ✓ JSONL Persistence     4 reviews persisted (crash-safe, append-only)
+  ✓ Model Routing         per-pipeline×role routing + 529 cross-provider fallback
+  ✓ Tool Result Budget    2-layer: per-tool 32KB + per-round 200KB, disk fallback
+  ✓ Streaming Executor    tools dispatch during LLM stream (channel+goroutine)
+  ✓ Strategy A/B          v1.0 vs v2.0 → CONTINUE
+  ✓ Scheduled Recheck     1 pending, 0 completed
+  ✓ Active Learning       3 training samples (0 high-priority boundary cases)
+  ✓ Tool Hooks            156 audit entries (pre+post tool execution)
+  ✓ Agent Memory          16 entries (content=2, single=4, region=6, policy=2, coordinator=2)
+
+  Total Cost: $0.0361

@@ -118,6 +118,12 @@ func runWithRealLLM(cfg *config.Config, matrix *strategy.StrategyMatrix, logger 
 
 	demoAppeal(context.Background(), engine, stores, samples, logger)
 	demoVersionManager(stores.versionMgr, logger)
+
+	// System Monitor: analyze review data for anomalies.
+	monitorReport := agent.RunMonitor(stores.reviewStore, logger)
+	fmt.Println("\n=== Monitor Report ===")
+	fmt.Print(monitorReport.FormatReport())
+
 	printFeatureShowcase(stores, client)
 }
 
@@ -244,6 +250,11 @@ func runWithMockLLM(matrix *strategy.StrategyMatrix, logger *slog.Logger, cfg *c
 	// Version demo.
 	versionMgr.Create("v2.0")
 	versionMgr.Deploy("v2.0", 10)
+
+	// System Monitor.
+	monitorReport := agent.RunMonitor(reviewStore, logger)
+	fmt.Println("\n=== Monitor Report ===")
+	fmt.Print(monitorReport.FormatReport())
 
 	// Feature showcase (same format as real LLM mode).
 	mockStores := &engineStores{
