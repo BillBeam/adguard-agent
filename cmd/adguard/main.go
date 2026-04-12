@@ -142,7 +142,7 @@ func runWithMockLLM(matrix *strategy.StrategyMatrix, logger *slog.Logger, cfg *c
 	validationHook := agent.NewResultValidationHook(logger)
 	finalAuditHook := agent.NewFinalAuditHook(logger)
 	agentMemory := memory.NewAgentMemory("", 200, logger) // in-memory only for mock mode
-	memoryHook := agent.NewMemoryExtractionHook(agentMemory, logger)
+	memoryHook := agent.NewMemoryExtractionHook(agentMemory, nil, logger) // nil client = skip extraction in mock mode
 	preHooks := []agent.PreToolHook{auditHook, cbHook}
 	postHooks := []agent.PostToolHook{auditHook, cbHook}
 	stopHooks := []agent.StopHook{validationHook, finalAuditHook, memoryHook}
@@ -322,7 +322,7 @@ func buildEngine(client llm.LLMClient, matrix *strategy.StrategyMatrix, logger *
 	versionMgr.Promote("v1.0")
 
 	// Tool-level hooks: audit trail + circuit-breaker protection.
-	memoryHook := agent.NewMemoryExtractionHook(agentMemory, logger)
+	memoryHook := agent.NewMemoryExtractionHook(agentMemory, client, logger)
 	preHooks := []agent.PreToolHook{auditHook, cbHook}
 	postHooks := []agent.PostToolHook{auditHook, cbHook}
 	stopHooks := []agent.StopHook{validationHook, finalAuditHook, memoryHook}
