@@ -97,6 +97,7 @@ func runWithRealLLM(cfg *config.Config, matrix *strategy.StrategyMatrix, logger 
 	for i := 0; i < limit; i++ {
 		ad := &samples[i].AdContent
 		stores.budget.ResetForReview()
+		stores.cbHook.Reset() // Prevent cross-review failure accumulation.
 		// Print ad header BEFORE review starts — progress lines appear during review.
 		plan := matrix.GetReviewPlan(ad.Region, ad.Category)
 		mode := "single-agent"
@@ -265,6 +266,7 @@ type engineStores struct {
 	recheckScheduler *recheck.RecheckScheduler
 	budget           *compact.TokenBudget
 	auditHook     *agent.AuditHook
+	cbHook        *agent.CircuitBreakerHook
 	agentMemory   *memory.AgentMemory
 	router        *llm.ModelRouter
 }
@@ -344,7 +346,7 @@ func buildEngine(client llm.LLMClient, matrix *strategy.StrategyMatrix, logger *
 		reviewStore: reviewStore, trainingPool: trainingPool,
 		appealStore: appealStore, reputationMgr: reputationMgr,
 		versionMgr: versionMgr, recheckScheduler: recheckScheduler,
-		budget: budget, auditHook: auditHook,
+		budget: budget, auditHook: auditHook, cbHook: cbHook,
 		agentMemory: agentMemory, router: router,
 	}
 	return engine, stores

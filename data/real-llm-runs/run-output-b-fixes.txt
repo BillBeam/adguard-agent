@@ -1,0 +1,49 @@
+
+╔══════════════════════════════════════════════════════╗
+║  AdGuard Agent — Ad Content Safety Review System     ║
+║  Multi-Agent  |  6 tools  |  Agent Hooks             ║
+╚══════════════════════════════════════════════════════╝
+=== Model Routing ===
+  fast                   → grok-4-1-fast-non-reasoning
+  standard               → grok-4-1-fast-reasoning
+  comprehensive          → grok-4.20-0309-reasoning
+  adjudicator            → grok-4.20-0309-reasoning
+  appeal                 → grok-4.20-0309-reasoning
+  fallback chain: grok-4.20-0309-reasoning → grok-4-1-fast-reasoning → gpt-4o
+
+=== Review: 3 ads ===
+
+--- ad_001 (US/healthcare) [multi-agent] ---
+  ├─ coordinator:   directing review...
+  ├─ coordinator:   REJECTED        conf=1.00  (22.913s)
+  Verification: override
+  → MANUAL_REVIEW  conf=1.00  22.913s  (expected: REJECTED)
+
+--- ad_002 (US/finance) [multi-agent] ---
+  ├─ coordinator:   directing review...
+  ├─ coordinator:   PASSED          conf=0.95  (22.947s)
+  Recheck: 24h scheduled (high-risk PASSED)
+  → PASSED  conf=0.95  22.947s  (expected: PASSED)
+
+--- ad_003 (EU/healthcare) [multi-agent] ---
+  ├─ coordinator:   directing review...
+  ├─ coordinator:   MANUAL_REVIEW   conf=0.65  (29.167s)
+  → MANUAL_REVIEW  conf=0.65  29.167s  (expected: PASSED)
+
+  Appeal: ad_001 → PARTIAL
+
+  Version: v1.0 active, v2.0 canary (10%)
+
+=== Feature Showcase ===
+  ✓ Graceful Shutdown     SIGINT/SIGTERM → wait in-flight → flush JSONL → 5s failsafe
+  ✓ JSONL Persistence     4 reviews persisted (crash-safe, append-only)
+  ✓ Model Routing         per-pipeline×role routing + 529 cross-provider fallback
+  ✓ Tool Result Budget    2-layer: per-tool 32KB + per-round 200KB, disk fallback
+  ✓ Streaming Executor    tools dispatch during LLM stream (channel+goroutine)
+  ✓ Strategy A/B          v1.0 vs v2.0 → CONTINUE
+  ✓ Scheduled Recheck     1 pending, 0 completed
+  ✓ Active Learning       3 training samples (0 high-priority boundary cases)
+  ✓ Tool Hooks            30 audit entries (pre+post tool execution)
+  ✓ Agent Memory          16 entries (single=4, region=6, policy=2, coordinator=2, content=2)
+
+  Total Cost: $0.0122

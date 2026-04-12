@@ -178,15 +178,32 @@ func (h *CircuitBreakerHook) PreToolExec(toolName string, _ []byte) error {
 func (h *CircuitBreakerHook) PostToolExec(_ string, result string, err error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if err != nil || strings.HasPrefix(strings.TrimSpace(result), `{"error":`) {
+
+	// Only count actual execution errors, not input validation failures.
+	// LLM frequently sends malformed arguments on the first attempt and self-corrects —
+	// this is normal behavior that should not trip the breaker.
+	trimmed := strings.TrimSpace(result)
+	if err != nil {
 		h.consecutiveFails++
-		if h.consecutiveFails >= h.threshold {
-			h.tripped = true
-			h.logger.Warn("circuit breaker tripped", slog.Int("failures", h.consecutiveFails))
-		}
+	} else if strings.HasPrefix(trimmed, `{"error":`) && !strings.Contains(trimmed, "invalid input") {
+		h.consecutiveFails++
 	} else {
 		h.consecutiveFails = 0
 	}
+
+	if h.consecutiveFails >= h.threshold && !h.tripped {
+		h.tripped = true
+		h.logger.Warn("circuit breaker tripped", slog.Int("failures", h.consecutiveFails))
+	}
+}
+
+// Reset clears the circuit breaker state. Called between reviews to prevent
+// cross-review failure accumulation.
+func (h *CircuitBreakerHook) Reset() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.consecutiveFails = 0
+	h.tripped = false
 }
 
 // IsTripped returns whether the circuit breaker has been tripped.

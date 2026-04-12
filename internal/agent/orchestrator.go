@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/BillBeam/adguard-agent/internal/llm"
@@ -16,19 +15,20 @@ import (
 	"github.com/BillBeam/adguard-agent/internal/types"
 )
 
-// Orchestrator implements Multi-Agent ad review.
+// Orchestrator implements Coordinator-driven Multi-Agent ad review.
 //
 // Key design decisions:
-//   - Sub-agents reuse the same Run() function with different configs
-//   - Each sub-agent has isolated State (messages, transition log)
-//   - Shared: LLM Client, StrategyMatrix
-//   - Parallel execution via goroutines + sync.WaitGroup
+//   - Coordinator is an agentic loop with dispatch_specialist tool
+//   - Coordinator dynamically decides which specialists to invoke
+//   - Coordinator makes the final review decision itself (no separate Adjudicator)
+//   - L3 cross-validation applied as programmatic safety net after Coordinator's decision
+//   - Specialist agents reuse the same Run() function with different configs
 //
 // Execution flow for standard/comprehensive pipelines:
-//  1. Fork 3 specialist agents (ContentAgent, PolicyAgent, RegionAgent) in parallel
-//  2. Collect AgentResults from all 3
-//  3. Run AdjudicatorAgent with collected results as input
-//  4. Return final ReviewResult with full QueryChain
+//  1. Create dispatch_specialist tool bound to review context
+//  2. Run Coordinator loop (LLM calls dispatch_specialist as needed)
+//  3. Coordinator outputs final ReviewResult JSON
+//  4. Apply L3 cross-validation + build final result
 // ProgressFunc is called by the orchestrator when a specialist starts or completes.
 // Enables real-time progress display during multi-agent review.
 type ProgressFunc func(role string, phase string, detail string)
@@ -219,251 +219,7 @@ func (o *Orchestrator) RunMultiAgent(ctx context.Context, ad *types.AdContent, p
 	}, nil
 }
 
-// runSpecialists forks and runs all specialist agents in parallel.
-func (o *Orchestrator) runSpecialists(
-	ctx context.Context,
-	ad *types.AdContent,
-	policies []types.Policy,
-	plan types.ReviewPlan,
-	specs []AgentSpec,
-	chain *QueryChain,
-	chainLog *ChainLog,
-) []AgentResult {
-	results := make([]AgentResult, len(specs))
-	var wg sync.WaitGroup
-	wg.Add(len(specs))
 
-	for i, spec := range specs {
-		go func(idx int, s AgentSpec) {
-			defer wg.Done()
-			if o.onProgress != nil {
-				o.onProgress(string(s.Role), "start", "analyzing...")
-			}
-			results[idx] = o.runSingleAgent(ctx, ad, policies, plan, s, chain.Child(), chainLog)
-			ar := results[idx]
-			if o.onProgress != nil {
-				o.onProgress(string(s.Role), "complete",
-					fmt.Sprintf("%-15s conf=%.2f  (%s)", ar.Decision, ar.Confidence, ar.Duration.Round(time.Millisecond)))
-			}
-		}(i, spec)
-	}
-
-	wg.Wait()
-	return results
-}
-
-// runSingleAgent executes one specialist agent via Run().
-// Key design: reuses the SAME Run() function as Phase 2's single-agent path.
-func (o *Orchestrator) runSingleAgent(
-	ctx context.Context,
-	ad *types.AdContent,
-	policies []types.Policy,
-	plan types.ReviewPlan,
-	spec AgentSpec,
-	childChain *QueryChain,
-	chainLog *ChainLog,
-) AgentResult {
-	start := time.Now()
-
-	// Build isolated config for this agent.
-	subRegistry := o.registry.Sub(spec.Tools...)
-	subExecutor := tool.NewExecutor(subRegistry, o.logger)
-
-	config := &LoopConfig{
-		MaxTurns:            spec.MaxTurns,
-		ConfidenceThreshold: plan.ConfidenceThreshold,
-		AllowAutoReject:     plan.AllowAutoReject,
-		RequireVerification: false, // Verification happens at orchestrator level
-		Pipeline:            plan.Pipeline,
-		Tools:               subRegistry.ExportDefinitions(),
-		ToolExecutor:        subExecutor,
-		SystemPrompt:        o.buildSpecialistPrompt(spec.Role, ad, policies, plan),
-		DefaultMaxTokens:    DefaultMaxOutputTokens,
-		EscalatedMaxTokens:  EscalatedMaxOutputTokens,
-		MaxRecoveryAttempts: MaxRecoveryAttempts,
-	}
-
-	// Model routing: select model based on pipeline and agent role.
-	if o.router != nil {
-		config.Model = o.router.RouteModel(plan.Pipeline, string(spec.Role))
-		if fb, ok := o.router.GetFallback(config.Model); ok {
-			config.FallbackModel = fb
-		}
-	}
-
-	config.EnableStreaming = true
-
-	// Inject tool-level hooks.
-	config.PreToolHooks = o.preToolHooks
-	config.PostToolHooks = o.postToolHooks
-	config.StopHooks = o.stopHooks
-
-	// Build isolated state — each agent starts with fresh messages.
-	state := NewState(ad)
-	state.AgentRole = string(spec.Role)
-	state.Messages = buildInitialMessages(config.SystemPrompt)
-
-	o.logger.Debug("specialist agent started",
-		slog.String("role", string(spec.Role)),
-		slog.String("ad_id", ad.ID),
-		slog.Int("tools", len(spec.Tools)),
-		slog.Int("max_turns", spec.MaxTurns),
-	)
-
-	// Execute — reuses the same Run() function as single-agent path.
-	loopResult := Run(ctx, o.client, config, state, nil, o.logger)
-
-	duration := time.Since(start)
-	ar := parseAgentResult(spec.Role, loopResult, state, duration)
-
-	// Record in chain log.
-	chainLog.Add(ChainEntry{
-		ChainID:     childChain.ChainID,
-		Depth:       childChain.Depth,
-		AgentRole:   string(spec.Role),
-		Decision:    ar.Decision,
-		Confidence:  ar.Confidence,
-		ToolsCalled: extractToolsCalled(state),
-		Duration:    duration,
-		Trace:       ar.Trace,
-	})
-
-	o.logger.Info("specialist agent completed",
-		slog.String("role", string(spec.Role)),
-		slog.String("decision", ar.Decision),
-		slog.Float64("confidence", ar.Confidence),
-		slog.Duration("duration", duration),
-	)
-
-	return ar
-}
-
-// runAdjudicator runs the Adjudicator agent to synthesize specialist results.
-func (o *Orchestrator) runAdjudicator(
-	ctx context.Context,
-	ad *types.AdContent,
-	agentResults []AgentResult,
-	plan types.ReviewPlan,
-	chain *QueryChain,
-	chainLog *ChainLog,
-) AgentResult {
-	start := time.Now()
-	spec := AdjudicatorSpec(plan.Pipeline)
-	childChain := chain.Child()
-
-	// Adjudicator has no tools — pure reasoning.
-	config := &LoopConfig{
-		MaxTurns:            spec.MaxTurns,
-		ConfidenceThreshold: plan.ConfidenceThreshold,
-		AllowAutoReject:     plan.AllowAutoReject,
-		Pipeline:            plan.Pipeline,
-		Tools:               nil, // No tools for Adjudicator
-		ToolExecutor:        &noOpExecutor{},
-		SystemPrompt:        BuildAdjudicatorPrompt(ad, agentResults, plan),
-		DefaultMaxTokens:    DefaultMaxOutputTokens,
-		EscalatedMaxTokens:  EscalatedMaxOutputTokens,
-		MaxRecoveryAttempts: MaxRecoveryAttempts,
-	}
-
-	// Model routing: adjudicator uses the strongest reasoning model.
-	if o.router != nil {
-		config.Model = o.router.RouteModel(plan.Pipeline, "adjudicator")
-		if fb, ok := o.router.GetFallback(config.Model); ok {
-			config.FallbackModel = fb
-		}
-	}
-
-	config.EnableStreaming = true
-
-	// Adjudicator has no tools, so PreToolHooks won't fire, but StopHooks still apply.
-	config.PreToolHooks = o.preToolHooks
-	config.PostToolHooks = o.postToolHooks
-	config.StopHooks = o.stopHooks
-
-	state := NewState(ad)
-	state.Messages = []types.Message{
-		{Role: types.RoleSystem, Content: types.NewTextContent(config.SystemPrompt)},
-		{Role: types.RoleUser, Content: types.NewTextContent(
-			"Based on the specialist agent reports above, provide your final review decision as JSON.")},
-	}
-
-	loopResult := Run(ctx, o.client, config, state, nil, o.logger)
-
-	duration := time.Since(start)
-	ar := parseAgentResult(RoleAdjudicator, loopResult, state, duration)
-
-	chainLog.Add(ChainEntry{
-		ChainID:   childChain.ChainID,
-		Depth:     childChain.Depth,
-		AgentRole: "adjudicator",
-		Decision:  ar.Decision,
-		Confidence: ar.Confidence,
-		Duration:  duration,
-		Trace:     ar.Trace,
-	})
-
-	o.logger.Info("adjudicator completed",
-		slog.String("decision", ar.Decision),
-		slog.Float64("confidence", ar.Confidence),
-	)
-
-	return ar
-}
-
-// buildFinalResult constructs the final ReviewResult from the Adjudicator's output,
-// with fallback to programmatic aggregation if Adjudicator parsing fails.
-func (o *Orchestrator) buildFinalResult(
-	ad *types.AdContent,
-	adjResult AgentResult,
-	agentResults []AgentResult,
-	startTime time.Time,
-) *types.ReviewResult {
-	// Collect all violations from all agents (deduplicated by policy_id).
-	allViolations := mergeViolations(agentResults)
-
-	// Determine risk level from violations.
-	riskLevel := types.RiskMedium
-	for _, v := range allViolations {
-		if v.Severity == "critical" {
-			riskLevel = types.RiskCritical
-			break
-		}
-		if v.Severity == "high" {
-			riskLevel = types.RiskHigh
-		}
-	}
-
-	// Build agent trace.
-	trace := buildMultiAgentTrace(agentResults, adjResult)
-
-	// Use Adjudicator's decision if valid, otherwise fall back to programmatic aggregation.
-	decision := types.ReviewDecision(adjResult.Decision)
-	confidence := adjResult.Confidence
-
-	switch decision {
-	case types.DecisionPassed, types.DecisionRejected, types.DecisionManualReview:
-		// Valid decision from Adjudicator.
-	default:
-		// Adjudicator failed — use programmatic L3 aggregation.
-		o.logger.Warn("adjudicator decision invalid, using programmatic aggregation",
-			slog.String("raw_decision", adjResult.Decision))
-		decision, confidence = aggregateDecisions(agentResults)
-	}
-
-	// L3 false-positive control: apply regardless of Adjudicator's output.
-	decision, confidence = applyL3Control(agentResults, decision, confidence)
-
-	return &types.ReviewResult{
-		AdID:           ad.ID,
-		Decision:       decision,
-		Confidence:     confidence,
-		Violations:     allViolations,
-		RiskLevel:      riskLevel,
-		AgentTrace:     trace,
-		ReviewDuration: time.Since(startTime),
-		Timestamp:      time.Now(),
-	}
-}
 
 // singleToolExecutor wraps a single Tool interface into a ToolExecutor.
 // Used by the Coordinator which has only the dispatch_specialist tool.
@@ -573,16 +329,6 @@ func (o *Orchestrator) buildCoordinatorResult(
 	}
 }
 
-// buildSpecialistPrompt builds a specialist agent's system prompt with optional memory injection.
-func (o *Orchestrator) buildSpecialistPrompt(role AgentRole, ad *types.AdContent, policies []types.Policy, plan types.ReviewPlan) string {
-	var memorySection string
-	if o.agentMemory != nil {
-		entries := o.agentMemory.LoadRelevant(string(role), ad.Region, ad.Category)
-		memorySection = o.agentMemory.FormatForPrompt(entries)
-	}
-	return BuildAgentSystemPrompt(role, ad, policies, plan, memorySection)
-}
-
 // --- Helper functions ---
 
 // parseAgentResult extracts an AgentResult from a LoopResult.
@@ -671,11 +417,12 @@ func buildMultiAgentTrace(specialists []AgentResult, adj AgentResult) []string {
 			trace = append(trace, fmt.Sprintf("[%s] %s", ar.Role, t))
 		}
 	}
-	trace = append(trace, fmt.Sprintf("[adjudicator] decision=%s conf=%.2f", adj.Decision, adj.Confidence))
+	trace = append(trace, fmt.Sprintf("[%s] decision=%s conf=%.2f", adj.Role, adj.Decision, adj.Confidence))
 	return trace
 }
 
-// noOpExecutor is used by the Adjudicator (no tools).
+// noOpExecutor is the fallback executor for agents with no tool registry.
+// Used by Appeal Agent when tool registry is not configured.
 type noOpExecutor struct{}
 
 func (e *noOpExecutor) Execute(_ context.Context, toolCalls []types.ToolCall) ([]types.Message, error) {
@@ -683,7 +430,7 @@ func (e *noOpExecutor) Execute(_ context.Context, toolCalls []types.ToolCall) ([
 	for i, tc := range toolCalls {
 		results[i] = types.Message{
 			Role:       types.RoleTool,
-			Content:    types.NewTextContent(`{"error":"adjudicator has no tools"}`),
+			Content:    types.NewTextContent(`{"error":"no tools available"}`),
 			ToolCallID: tc.ID,
 		}
 	}

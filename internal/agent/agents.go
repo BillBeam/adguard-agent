@@ -54,15 +54,6 @@ func SpecialistAgentSpecs(pipeline string) []AgentSpec {
 	}
 }
 
-// AdjudicatorSpec returns the spec for the Adjudicator agent.
-func AdjudicatorSpec(pipeline string) AgentSpec {
-	maxTurns := 2
-	if pipeline == "comprehensive" {
-		maxTurns = 3
-	}
-	return AgentSpec{Role: RoleAdjudicator, Tools: nil, MaxTurns: maxTurns}
-}
-
 // --- Static/Dynamic System Prompt Split ---
 
 var (
@@ -240,72 +231,6 @@ func BuildCoordinatorPrompt(ad *types.AdContent, policies []types.Policy, plan t
 	b.WriteString(`{"decision":"PASSED|REJECTED|MANUAL_REVIEW","confidence":0.0-1.0,`)
 	b.WriteString(`"violations":[{"policy_id":"...","severity":"...","description":"...","confidence":0.0-1.0,"evidence":"..."}],`)
 	b.WriteString(`"reasoning":"brief explanation of how specialist findings led to this decision"}`)
-	b.WriteString("\n")
-
-	return b.String()
-}
-
-// BuildAdjudicatorPrompt is kept for backward compatibility in tests.
-// In the new orchestration model, the Coordinator makes the final decision directly.
-//
-// BuildAdjudicatorPrompt constructs the Adjudicator's system prompt
-// with the specialist agents' results embedded.
-func BuildAdjudicatorPrompt(ad *types.AdContent, agentResults []AgentResult, plan types.ReviewPlan) string {
-	var b strings.Builder
-
-	b.WriteString("You are the final decision-maker in an ad content safety review system. ")
-	b.WriteString("Multiple specialist agents have independently analyzed the same advertisement. ")
-	b.WriteString("Your task is to synthesize their findings into a single, authoritative review decision.\n\n")
-
-	// Pipeline info.
-	fmt.Fprintf(&b, "Review pipeline: %s\n", plan.Pipeline)
-	fmt.Fprintf(&b, "Confidence threshold: %.2f\n\n", plan.ConfidenceThreshold)
-
-	// Ad summary.
-	b.WriteString("=== AD SUMMARY ===\n")
-	fmt.Fprintf(&b, "Ad ID: %s | Region: %s | Category: %s | Advertiser: %s\n",
-		ad.ID, ad.Region, ad.Category, ad.AdvertiserID)
-	fmt.Fprintf(&b, "Headline: %s\n\n", ad.Content.Headline)
-
-	// Agent results.
-	b.WriteString("=== SPECIALIST AGENT REPORTS ===\n\n")
-	for _, ar := range agentResults {
-		fmt.Fprintf(&b, "--- %s Agent ---\n", strings.ToUpper(string(ar.Role)))
-		fmt.Fprintf(&b, "Decision: %s (confidence: %.2f)\n", ar.Decision, ar.Confidence)
-		if len(ar.Violations) > 0 {
-			b.WriteString("Violations:\n")
-			for _, v := range ar.Violations {
-				fmt.Fprintf(&b, "  - [%s] %s (severity=%s, confidence=%.2f)\n",
-					v.PolicyID, v.Description, v.Severity, v.Confidence)
-			}
-		}
-		if ar.Reasoning != "" {
-			fmt.Fprintf(&b, "Reasoning: %s\n", ar.Reasoning)
-		}
-		b.WriteString("\n")
-	}
-
-	// Instructions.
-	b.WriteString("=== INSTRUCTIONS ===\n")
-	b.WriteString("1. Identify conflicts: Which agents disagree? On what issues?\n")
-	b.WriteString("2. Apply weighted evaluation:\n")
-	b.WriteString("   - Content Agent has highest authority on text/media content issues\n")
-	b.WriteString("   - Policy Agent has highest authority on policy compliance issues\n")
-	b.WriteString("   - Region Agent has highest authority on regional regulatory issues\n")
-	b.WriteString("3. Apply false-positive control (L3):\n")
-	b.WriteString("   - If ALL agents agree → high confidence, maintain decision\n")
-	b.WriteString("   - If 2:1 split → follow majority, reduce confidence\n")
-	b.WriteString("   - If 3-way disagreement → MANUAL_REVIEW (case too complex for automation)\n")
-	b.WriteString("   - If ANY agent found critical-severity violation → at minimum MANUAL_REVIEW\n")
-	b.WriteString("4. Output your final decision as JSON.\n\n")
-
-	// Output format.
-	b.WriteString("=== OUTPUT FORMAT ===\n")
-	b.WriteString("Output ONLY a JSON object:\n")
-	b.WriteString(`{"decision":"PASSED|REJECTED|MANUAL_REVIEW","confidence":0.0-1.0,`)
-	b.WriteString(`"violations":[...],"conflicts":[{"agents":["a","b"],"issue":"..."}],`)
-	b.WriteString(`"agent_decisions":{"content":"...","policy":"...","region":"..."},`)
-	b.WriteString(`"reasoning":"brief explanation"}`)
 	b.WriteString("\n")
 
 	return b.String()
