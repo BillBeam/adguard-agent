@@ -127,8 +127,16 @@ func (d *DispatchSpecialist) Execute(ctx context.Context, args json.RawMessage) 
 		Role  string `json:"role"`
 		Focus string `json:"focus"`
 	}
+	// Handle both raw JSON object and JSON-encoded string (LLMs sometimes double-encode).
 	if err := json.Unmarshal(args, &input); err != nil {
-		return "", fmt.Errorf("parsing input: %w", err)
+		var s string
+		if json.Unmarshal(args, &s) == nil {
+			if err2 := json.Unmarshal([]byte(s), &input); err2 != nil {
+				return "", fmt.Errorf("parsing input: %w", err2)
+			}
+		} else {
+			return "", fmt.Errorf("parsing input: %w", err)
+		}
 	}
 
 	role := AgentRole(input.Role)
