@@ -12,18 +12,20 @@ import (
 	"github.com/BillBeam/adguard-agent/internal/types"
 )
 
-// HistoryLookup — 感知+研判环节
+// HistoryLookup — Perception (感知) + Adjudication (研判) stages
 //
-// 业务归属：JD"标检训一体化"的"检"环节基础 + 误伤控制 L1（Memory 一致性）。
-// 查询相似广告的历史审核判例，提供两层误伤控制：
-//   - Memory 一致性：同一品类/地区的相似广告应得到一致的审核结果
-//   - 广告主信誉参考：高信誉广告主在边界案例中倾向宽松判定
+// Foundation of the Label-Detect-Train pipeline (标检训一体化) "Detect" stage
+// + false-positive control (误伤控制) L1 (Memory consistency).
+// Queries historical review precedents for similar ads, providing two layers of
+// false-positive control:
+//   - Memory consistency: similar ads in the same category/region should receive consistent decisions
+//   - Advertiser reputation: high-reputation advertisers get lenient treatment on borderline cases
 //
-// 在"感知-归因-研判-治理"链路中：
-//   - 感知：检索历史判例，发现模式（如某广告主反复提交违规内容）
-//   - 研判：基于历史一致性和广告主信誉辅助判定
+// In the Perception-Attribution-Adjudication-Governance (感知-归因-研判-治理) pipeline:
+//   - Perception (感知): retrieves historical precedents, discovers patterns (e.g. an advertiser repeatedly submitting violating content)
+//   - Adjudication (研判): uses historical consistency and advertiser reputation to assist decisions
 //
-// Phase 2 实现为内存存储；Phase 3 ReviewStore 将提供持久化。
+// Phase 2 uses in-memory storage; Phase 3 ReviewStore provides persistence.
 // HistoryRecord wraps a ReviewResult with the ad context needed for matching.
 type HistoryRecord struct {
 	types.ReviewResult
@@ -36,11 +38,11 @@ type HistoryLookup struct {
 	BaseTool
 	mu          sync.RWMutex
 	records     []HistoryRecord
-	reviewStore *store.ReviewStore // 非空时直接查询持久化存储，消除重启数据丢失
+	reviewStore *store.ReviewStore // when non-nil, queries persistent store directly — eliminates data loss on restart
 	logger      *slog.Logger
 }
 
-// NewHistoryLookup 创建历史查询工具，初始历史为空。
+// NewHistoryLookup creates a history lookup tool with empty initial history.
 func NewHistoryLookup(logger *slog.Logger) *HistoryLookup {
 	return &HistoryLookup{
 		BaseTool: ReviewToolBase(),
@@ -49,17 +51,18 @@ func NewHistoryLookup(logger *slog.Logger) *HistoryLookup {
 	}
 }
 
-// WithReviewStore 关联持久化存储。设置后 Execute 直接查询 ReviewStore，
-// 启动时自动包含 JSONL 恢复的历史记录，消除重启后历史断裂。
+// WithReviewStore associates a persistent store. Once set, Execute queries the
+// ReviewStore directly, which automatically includes JSONL-recovered history on
+// startup — eliminating history gaps after restarts.
 func (h *HistoryLookup) WithReviewStore(rs *store.ReviewStore) *HistoryLookup {
 	h.reviewStore = rs
 	return h
 }
 
-// AddRecord 追加一条审核历史。当 ReviewStore 已关联时为空操作（Store 为唯一数据源）。
+// AddRecord appends a review history entry. No-op when ReviewStore is associated (Store is the single source of truth).
 func (h *HistoryLookup) AddRecord(result types.ReviewResult, advertiserID, region, category string) {
 	if h.reviewStore != nil {
-		return // ReviewStore 已持有此记录，不维护独立副本
+		return // ReviewStore already holds this record — no separate copy needed
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -104,7 +107,7 @@ func (h *HistoryLookup) ValidateInput(args json.RawMessage) error {
 	return nil
 }
 
-// Execute — 感知+研判：查询历史判例和广告主信誉。
+// Execute performs Perception (感知) + Adjudication (研判): queries historical precedents and advertiser reputation.
 func (h *HistoryLookup) Execute(ctx context.Context, args json.RawMessage) (string, error) {
 	var input struct {
 		AdvertiserID string `json:"advertiser_id"`
@@ -117,7 +120,7 @@ func (h *HistoryLookup) Execute(ctx context.Context, args json.RawMessage) (stri
 		return "", fmt.Errorf("parsing input: %w", err)
 	}
 
-	// ReviewStore 已关联时，直接查询持久化存储（包含 JSONL 恢复的历史）。
+	// When ReviewStore is associated, query persistent storage directly (includes JSONL-recovered history).
 	if h.reviewStore != nil {
 		return h.executeFromStore(input.AdvertiserID, input.Category, input.Region)
 	}
@@ -173,9 +176,9 @@ func (h *HistoryLookup) Execute(ctx context.Context, args json.RawMessage) (stri
 	return string(result), nil
 }
 
-// executeFromStore 基于 ReviewStore 的查询路径，启动即可用 JSONL 恢复的历史。
+// executeFromStore is the ReviewStore-backed query path, available immediately on startup with JSONL-recovered history.
 func (h *HistoryLookup) executeFromStore(advertiserID, category, region string) (string, error) {
-	// 1. 广告主历史记录。
+	// 1. Advertiser history records.
 	advRecords := h.reviewStore.QueryByAdvertiser(advertiserID)
 	var histRecords []HistoryRecord
 	for _, r := range advRecords {
@@ -187,7 +190,7 @@ func (h *HistoryLookup) executeFromStore(advertiserID, category, region string) 
 		})
 	}
 
-	// 2. 相似案例：同品类+同地区。
+	// 2. Similar cases: same category + same region.
 	var similarCases []similarCase
 	if category != "" && region != "" {
 		for _, r := range h.reviewStore.QueryByRegionCategory(region, category) {
@@ -199,7 +202,7 @@ func (h *HistoryLookup) executeFromStore(advertiserID, category, region string) 
 			})
 		}
 	} else {
-		// 仅按广告主匹配。
+		// Match by advertiser only.
 		for _, r := range advRecords {
 			similarCases = append(similarCases, similarCase{
 				AdID:              r.AdID,
@@ -213,10 +216,10 @@ func (h *HistoryLookup) executeFromStore(advertiserID, category, region string) 
 		similarCases = similarCases[len(similarCases)-10:]
 	}
 
-	// 3. 广告主信誉。
+	// 3. Advertiser reputation.
 	rep := calculateReputation(advertiserID, histRecords)
 
-	// 4. 一致性建议。
+	// 4. Consistency advice.
 	advice := generateConsistencyAdvice(similarCases)
 
 	totalRecords := h.reviewStore.Stats().Total

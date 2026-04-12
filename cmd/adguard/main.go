@@ -275,7 +275,7 @@ func buildEngine(client llm.LLMClient, matrix *strategy.StrategyMatrix, logger *
 	versionMgr := strategy.NewVersionManager(logger)
 	verifier := store.NewVerifier(client, reviewStore, logger).WithTrainingPool(trainingPool)
 	auditHook := agent.NewAuditHook(logger)
-	cbHook := agent.NewCircuitBreakerHook(10, logger) // 高阈值，demo 不误触发
+	cbHook := agent.NewCircuitBreakerHook(10, logger) // High threshold so demo doesn't accidentally trip
 	validationHook := agent.NewResultValidationHook(logger)
 	finalAuditHook := agent.NewFinalAuditHook(logger)
 
@@ -310,7 +310,7 @@ func buildEngine(client llm.LLMClient, matrix *strategy.StrategyMatrix, logger *
 	versionMgr.Deploy("v1.0", 0)
 	versionMgr.Promote("v1.0")
 
-	// 工具级 Hook：审计追踪 + 熔断保护。
+	// Tool-level hooks: audit trail + circuit-breaker protection.
 	preHooks := []agent.PreToolHook{auditHook, cbHook}
 	postHooks := []agent.PostToolHook{auditHook, cbHook}
 	stopHooks := []agent.StopHook{validationHook, finalAuditHook}
@@ -337,7 +337,7 @@ func buildEngine(client llm.LLMClient, matrix *strategy.StrategyMatrix, logger *
 func printBanner() {
 	fmt.Println("\n╔══════════════════════════════════════════════════════╗")
 	fmt.Println("║  AdGuard Agent — Ad Content Safety Review System     ║")
-	fmt.Println("║  16K lines Go  |  7 upgrades  |  Multi-Agent         ║")
+	fmt.Println("║  Multi-Agent  |  6 tools  |  Agent Hooks             ║")
 	fmt.Println("╚══════════════════════════════════════════════════════╝")
 }
 
@@ -418,7 +418,7 @@ func printFeatureShowcase(stores *engineStores, client llm.LLMClient) {
 			ts.Total, ts.HighPriorityCount)
 	}
 
-	// 9. Tool Hooks (审计追踪 + 熔断保护)
+	// 9. Tool Hooks (audit trail + circuit-breaker protection)
 	if stores.auditHook != nil {
 		entries := stores.auditHook.Entries()
 		fmt.Printf("  ✓ Tool Hooks            %d audit entries (pre+post tool execution)\n", len(entries))

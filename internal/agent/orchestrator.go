@@ -39,7 +39,7 @@ type Orchestrator struct {
 	router     *llm.ModelRouter  // nil = use client default
 	onProgress ProgressFunc      // nil = no progress reporting
 	logger     *slog.Logger
-	// 工具级 Hook：注入到每个 specialist 和 adjudicator 的 LoopConfig。
+	// Tool-level hooks: injected into every specialist and adjudicator LoopConfig.
 	preToolHooks  []PreToolHook
 	postToolHooks []PostToolHook
 	stopHooks     []StopHook
@@ -72,7 +72,7 @@ func (o *Orchestrator) WithModelRouter(router *llm.ModelRouter) *Orchestrator {
 	return o
 }
 
-// WithHooks 注入工具级 Hook 到所有 specialist 和 adjudicator Agent。
+// WithHooks injects tool-level hooks into all specialist and adjudicator agents.
 func (o *Orchestrator) WithHooks(pre []PreToolHook, post []PostToolHook, stop []StopHook) *Orchestrator {
 	o.preToolHooks = pre
 	o.postToolHooks = post
@@ -225,7 +225,7 @@ func (o *Orchestrator) runSingleAgent(
 
 	config.EnableStreaming = true
 
-	// 注入工具级 Hook。
+	// Inject tool-level hooks.
 	config.PreToolHooks = o.preToolHooks
 	config.PostToolHooks = o.postToolHooks
 	config.StopHooks = o.stopHooks
@@ -306,7 +306,7 @@ func (o *Orchestrator) runAdjudicator(
 
 	config.EnableStreaming = true
 
-	// Adjudicator 无工具，PreToolHooks 不会触发，但 StopHooks 仍有意义。
+	// Adjudicator has no tools, so PreToolHooks won't fire, but StopHooks still apply.
 	config.PreToolHooks = o.preToolHooks
 	config.PostToolHooks = o.postToolHooks
 	config.StopHooks = o.stopHooks

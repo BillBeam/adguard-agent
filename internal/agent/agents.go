@@ -10,11 +10,11 @@ import (
 
 // Agent role definitions for the Multi-Agent review system.
 //
-// 4 Agent roles aligned with "感知-归因-研判" pipeline:
-//   - ContentAgent  (感知+归因): deep content analysis + policy matching
-//   - PolicyAgent   (归因+研判): policy compliance from strategy platform perspective
-//   - RegionAgent   (研判):      region-specific regulatory compliance
-//   - AdjudicatorAgent (研判核心): conflict detection + weighted arbitration + L3 false-positive control
+// 4 Agent roles aligned with the Perception-Attribution-Adjudication (感知-归因-研判) pipeline:
+//   - ContentAgent  (Perception+Attribution): deep content analysis + policy matching
+//   - PolicyAgent   (Attribution+Adjudication): policy compliance from strategy platform perspective
+//   - RegionAgent   (Adjudication):      region-specific regulatory compliance
+//   - AdjudicatorAgent (core Adjudication): conflict detection + weighted arbitration + L3 False-positive control (误伤控制)
 
 // AgentRole identifies a specialist agent type.
 type AgentRole string
@@ -143,7 +143,7 @@ func BuildAdjudicatorPrompt(ad *types.AdContent, agentResults []AgentResult, pla
 // --- Specialist agent prompts ---
 
 func buildContentAgentPrompt(b *strings.Builder, ad *types.AdContent, policies []types.Policy, plan types.ReviewPlan) {
-	// 感知+归因：content analysis specialist.
+	// Perception+Attribution (感知+归因): content analysis specialist.
 	b.WriteString("You are an ad content safety analysis specialist. ")
 	b.WriteString("Your focus is detecting problematic claims, misleading language, Algospeak, ")
 	b.WriteString("and false regulatory claims in the ad creative.\n\n")
@@ -160,7 +160,7 @@ func buildContentAgentPrompt(b *strings.Builder, ad *types.AdContent, policies [
 }
 
 func buildPolicyAgentPrompt(b *strings.Builder, ad *types.AdContent, policies []types.Policy, plan types.ReviewPlan) {
-	// 归因+研判：policy compliance specialist.
+	// Attribution+Adjudication (归因+研判): policy compliance specialist.
 	b.WriteString("You are an ad policy compliance specialist. ")
 	b.WriteString("Your focus is determining whether this ad meets all applicable policy requirements ")
 	b.WriteString("based on the TikTok advertising policy framework and regional regulations.\n\n")
@@ -178,7 +178,7 @@ func buildPolicyAgentPrompt(b *strings.Builder, ad *types.AdContent, policies []
 }
 
 func buildRegionAgentPrompt(b *strings.Builder, ad *types.AdContent, policies []types.Policy, plan types.ReviewPlan) {
-	// 研判：region compliance specialist.
+	// Adjudication (研判): region compliance specialist.
 	b.WriteString("You are an international ad market compliance specialist. ")
 	b.WriteString("Your focus is checking whether this ad is suitable for the target region: ")
 	b.WriteString("category restrictions, landing page compliance, advertiser history, cultural sensitivity.\n\n")
@@ -226,9 +226,9 @@ func writePolicies(b *strings.Builder, policies []types.Policy) {
 	b.WriteString("\n")
 }
 
-// truncatePolicySummary 截取策略文本的第一句或前 maxLen 个字符。
+// truncatePolicySummary extracts the first sentence or the first maxLen characters of the policy text.
 func truncatePolicySummary(text string, maxLen int) string {
-	// 取第一句话。
+	// Take the first sentence.
 	if idx := strings.Index(text, ". "); idx >= 0 && idx < maxLen {
 		return text[:idx+1]
 	}

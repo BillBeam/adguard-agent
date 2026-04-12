@@ -12,18 +12,18 @@ import (
 	"github.com/BillBeam/adguard-agent/internal/types"
 )
 
-// ContentAnalyzer — 感知环节核心
+// ContentAnalyzer — core of the Perception stage (感知)
 //
-// 业务归属：JD"面向日均亿级别广告素材和全广告形态"的内容检测能力。
-// 检测广告文案中的违规信号——虚假声明、绝对化用语、误导性 CTA、
-// Algospeak（算法语：谐音字/特殊符号/Unicode 替换规避检测）。
+// Handles content detection for billions of daily ad creatives across all ad formats.
+// Detects violation signals in ad copy: false claims, absolute language, misleading CTAs,
+// Algospeak (algorithmic language evasion: homoglyphs/special chars/Unicode substitution).
 //
-// 在"感知-归因-研判-治理"链路中：
-//   - 感知：这是链路的第一站，负责从广告素材中提取违规信号
-//   - 输出的 signals 列表将被 PolicyMatcher 用于归因环节
+// In the Perception-Attribution-Adjudication-Governance (感知-归因-研判-治理) pipeline:
+//   - Perception (感知): first stage, extracts violation signals from ad creatives
+//   - Output signals list is consumed by PolicyMatcher for the Attribution (归因) stage
 //
-// 实现方式：LLM 驱动的语义分析，prompt 中嵌入从 StrategyMatrix 获取的
-// 适用政策 rule_text。LLM 调用失败时降级为关键词匹配（fail-closed）。
+// Implementation: LLM-driven semantic analysis with applicable policy rule_text from
+// StrategyMatrix embedded in the prompt. Falls back to keyword matching on LLM failure (fail-closed).
 type ContentAnalyzer struct {
 	BaseTool
 	client llm.LLMClient
@@ -78,14 +78,14 @@ func (c *ContentAnalyzer) ValidateInput(args json.RawMessage) error {
 	return nil
 }
 
-// Execute — 感知：LLM 驱动的广告内容分析。
+// Execute performs LLM-driven ad content analysis (Perception stage).
 //
-// 流程：
-//  1. 从 StrategyMatrix 获取适用政策 rule_text
-//  2. 构建 LLM prompt（含 Algospeak 检测指引 + ad_type 适配）
-//  3. 调用 LLM 获取分析结果
-//  4. 解析 LLM JSON 输出
-//  5. LLM 失败时降级为关键词匹配
+// Flow:
+//  1. Retrieve applicable policy rule_text from StrategyMatrix
+//  2. Build LLM prompt (with Algospeak detection guidance + ad_type adaptation)
+//  3. Call LLM for analysis
+//  4. Parse LLM JSON output
+//  5. Fall back to keyword matching on LLM failure
 func (c *ContentAnalyzer) Execute(ctx context.Context, args json.RawMessage) (string, error) {
 	var input struct {
 		Headline         string `json:"headline"`

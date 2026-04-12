@@ -9,16 +9,18 @@ import (
 	"github.com/BillBeam/adguard-agent/internal/strategy"
 )
 
-// RegionCompliance — 研判环节
+// RegionCompliance — Adjudication stage (研判)
 //
-// 业务归属：JD"面向全广告形态"的跨区域合规检查——验证广告是否满足
-// 目标地区的特定法规要求（MENA Sharia 合规、EU DSA 透明度、US COPPA 儿童保护等）。
+// Cross-region compliance checking for all ad formats: verifies whether an ad meets
+// target-region regulatory requirements (MENA Sharia compliance, EU DSA transparency,
+// US COPPA child protection, etc.).
 //
-// 在"感知-归因-研判-治理"链路中：
-//   - 研判：基于地区合规规则矩阵（region_rules.json），综合品类状态、
-//     法规要求和地区严格度，给出合规/不合规/需审核的判定。
+// In the Perception-Attribution-Adjudication-Governance (感知-归因-研判-治理) pipeline:
+//   - Adjudication (研判): based on the region compliance rule matrix (region_rules.json),
+//     combines category status, regulatory requirements, and region strictness to produce
+//     a compliant/non-compliant/needs-review verdict.
 //
-// 数据驱动：所有合规规则从 StrategyMatrix 查询，零硬编码。
+// Data-driven: all compliance rules are queried from StrategyMatrix, zero hardcoded rules.
 type RegionCompliance struct {
 	BaseTool
 	matrix *strategy.StrategyMatrix
@@ -68,14 +70,14 @@ func (r *RegionCompliance) ValidateInput(args json.RawMessage) error {
 	return nil
 }
 
-// Execute — 研判：地区合规检查。
+// Execute performs the Adjudication (研判) stage: region compliance check.
 //
-// 逻辑（全部数据驱动，从 StrategyMatrix 查询）：
-//  1. GetRegionCategoryRule → status/requirements
-//  2. prohibited → non_compliant（品类在该地区被禁止）
-//  3. restricted → needs_review（列出 requirements，标记缺失项）
-//  4. permitted → compliant
-//  5. GetRegionStrictness → 地区严格度（strict/standard）
+// Logic (entirely data-driven, queried from StrategyMatrix):
+//  1. GetRegionCategoryRule -> status/requirements
+//  2. prohibited -> non_compliant (category is banned in this region)
+//  3. restricted -> needs_review (list requirements, flag missing items)
+//  4. permitted -> compliant
+//  5. GetRegionStrictness -> region strictness level (strict/standard)
 func (r *RegionCompliance) Execute(_ context.Context, args json.RawMessage) (string, error) {
 	var input struct {
 		Region           string `json:"region"`

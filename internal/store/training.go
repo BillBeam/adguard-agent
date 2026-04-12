@@ -41,11 +41,11 @@ type TrainingRecord struct {
 	Region           string              `json:"region"`
 	Category         string              `json:"category"`
 	Confidence       float64             `json:"confidence"`
-	Priority         string              `json:"priority,omitempty"` // "high" 或 "normal"；空值等同 "normal"
+	Priority         string              `json:"priority,omitempty"` // "high" or "normal"; empty is equivalent to "normal"
 	CreatedAt        time.Time           `json:"created_at"`
 }
 
-// TrainingFilter 支持对训练池的组合查询。
+// TrainingFilter supports composite queries against the training pool.
 type TrainingFilter struct {
 	Source   *TrainingSource
 	Region   *string
@@ -53,7 +53,7 @@ type TrainingFilter struct {
 	Priority *string
 }
 
-// TrainingStats 提供训练池聚合统计。
+// TrainingStats provides aggregate statistics for the training pool.
 type TrainingStats struct {
 	Total             int                    `json:"total"`
 	BySource          map[TrainingSource]int `json:"by_source"`
@@ -206,12 +206,12 @@ func (tp *TrainingPool) Len() int {
 	return len(tp.records)
 }
 
-// PostReview 实现 agent.PostReviewHook。
-// 两类样本进入训练池：
-//   - 高置信度（≥0.9）：模型已掌握的样本，优先级 normal
-//   - 边界案例（0.4-0.6）：模型最不确定的区间，Active Learning 优先标注，优先级 high
+// PostReview implements agent.PostReviewHook.
+// Two categories of samples enter the training pool:
+//   - High-confidence (>= 0.9): samples the model has mastered, priority "normal"
+//   - Boundary cases (0.4-0.6): the model's most uncertain range, Active Learning priority labeling, priority "high"
 //
-// MANUAL_REVIEW 结果不采集（标签歧义，不适合训练）。
+// MANUAL_REVIEW results are not collected (ambiguous labels, unsuitable for training).
 func (tp *TrainingPool) PostReview(result types.ReviewResult, _, region, category, _ string) {
 	if result.Decision == types.DecisionManualReview {
 		return

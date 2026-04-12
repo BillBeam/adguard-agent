@@ -11,15 +11,15 @@ import (
 	"github.com/BillBeam/adguard-agent/internal/types"
 )
 
-// PolicyMatcher — 归因+研判环节
+// PolicyMatcher — Attribution (归因) + Adjudication (研判) stages
 //
-// 业务归属：JD"沉淀通用策略平台"——将检测到的内容信号与策略矩阵中的
-// 适用政策进行匹配。策略规则全部从 StrategyMatrix 加载（policy_kb.json +
-// region_rules.json），代码中零硬编码业务规则。
+// Part of the Universal Strategy Platform: matches detected content signals against
+// applicable policies in the strategy matrix. All policy rules are loaded from
+// StrategyMatrix (policy_kb.json + region_rules.json) with zero hardcoded business rules.
 //
-// 在"感知-归因-研判-治理"链路中：
-//   - 归因：将违规信号关联到具体策略条目
-//   - 研判：综合品类禁止状态和信号严重程度，评估违规置信度
+// In the Perception-Attribution-Adjudication-Governance (感知-归因-研判-治理) pipeline:
+//   - Attribution (归因): maps violation signals to specific policy entries
+//   - Adjudication (研判): combines category prohibition status and signal severity to assess violation confidence
 type PolicyMatcher struct {
 	BaseTool
 	matrix *strategy.StrategyMatrix
@@ -71,12 +71,12 @@ func (p *PolicyMatcher) ValidateInput(args json.RawMessage) error {
 	return nil
 }
 
-// Execute — 归因+研判：将信号匹配到策略违规。
+// Execute performs Attribution (归因) + Adjudication (研判): matches signals to policy violations.
 //
-// 匹配逻辑（全部数据驱动）：
-//  1. 从 StrategyMatrix 查询 region+category 的品类状态 — 禁止品类直接违规
-//  2. 从 StrategyMatrix 查询适用策略列表
-//  3. 遍历每条策略，检查 signals 是否与策略 rule_text 的关键语义匹配
+// Matching logic (entirely data-driven):
+//  1. Query StrategyMatrix for region+category status — prohibited categories are immediate violations
+//  2. Query StrategyMatrix for applicable policy list
+//  3. Iterate each policy, check if signals semantically match the policy rule_text
 func (p *PolicyMatcher) Execute(_ context.Context, args json.RawMessage) (string, error) {
 	var input struct {
 		Region   string   `json:"region"`

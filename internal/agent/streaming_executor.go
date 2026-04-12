@@ -47,20 +47,20 @@ type ConcurrencyChecker interface {
 	IsConcurrencySafe(toolName string) bool
 }
 
-// StreamingToolExecutor 管理 LLM 流式响应中的工具执行。
+// StreamingToolExecutor manages tool execution during LLM streaming responses.
 type StreamingToolExecutor struct {
 	mu               sync.Mutex
 	ctx              context.Context    // parent context for cancellation propagation
 	tools            []*trackedTool
 	executor         ToolExecutor
 	concurrencyCheck ConcurrencyChecker // nil = assume all concurrent-safe
-	preToolHooks     []PreToolHook      // 工具执行前检查（可阻止执行）
-	postToolHooks    []PostToolHook     // 工具执行后记录（仅信息性）
+	preToolHooks     []PreToolHook      // Pre-execution checks (can block execution)
+	postToolHooks    []PostToolHook     // Post-execution recording (informational only)
 	logger           *slog.Logger
 }
 
-// NewStreamingToolExecutor 创建流式工具调度器。
-// preHooks/postHooks 为 nil 时不执行 hook（向后兼容）。
+// NewStreamingToolExecutor creates a streaming tool dispatcher.
+// When preHooks/postHooks are nil, no hooks are executed (backward compatible).
 func NewStreamingToolExecutor(
 	ctx context.Context,
 	executor ToolExecutor,
@@ -151,11 +151,11 @@ func (s *StreamingToolExecutor) canExecuteLocked(isConcurrencySafe bool) bool {
 	return isConcurrencySafe && allExecutingSafe
 }
 
-// executeTool 在 goroutine 中执行单个工具，包含 PreToolHook/PostToolHook。
+// executeTool runs a single tool in a goroutine, with PreToolHook/PostToolHook.
 func (s *StreamingToolExecutor) executeTool(t *trackedTool) {
 	defer close(t.done)
 
-	// PreToolHook：阻止不合规的工具调用（fail-closed）。
+	// PreToolHook: block non-compliant tool calls (fail-closed).
 	if len(s.preToolHooks) > 0 {
 		if err := runPreToolHooks(s.preToolHooks, t.name, []byte(t.arguments), s.logger); err != nil {
 			s.mu.Lock()
@@ -197,12 +197,12 @@ func (s *StreamingToolExecutor) executeTool(t *trackedTool) {
 	}
 	t.status = statusCompleted
 
-	// PostToolHook：记录工具执行结果（仅信息性，不阻塞）。
+	// PostToolHook: record tool execution results (informational only, non-blocking).
 	if len(s.postToolHooks) > 0 {
 		runPostToolHooks(s.postToolHooks, t.name, t.result.Content.String(), err, s.logger)
 	}
 
-	s.logger.Debug("streaming executor: 工具执行完成",
+	s.logger.Debug("streaming executor: tool execution completed",
 		slog.String("tool", t.name),
 	)
 

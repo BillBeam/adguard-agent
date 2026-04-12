@@ -50,7 +50,7 @@ type ReviewEngine struct {
 	// Model routing: per-pipeline and per-role model selection.
 	router *llm.ModelRouter // nil = use LLM client default model
 
-	// 工具级 Hook：注入到每个 LoopConfig，实现审计追踪和熔断保护。
+	// Tool-level hooks: injected into every LoopConfig for audit trail and circuit-breaker protection.
 	preToolHooks  []PreToolHook
 	postToolHooks []PostToolHook
 	stopHooks     []StopHook
@@ -124,7 +124,7 @@ func (e *ReviewEngine) WithModelRouter(router *llm.ModelRouter) *ReviewEngine {
 	return e
 }
 
-// WithHooks 注入工具级 Hook。每次构建 LoopConfig 时自动设置。
+// WithHooks injects tool-level hooks. Automatically applied when building each LoopConfig.
 func (e *ReviewEngine) WithHooks(pre []PreToolHook, post []PostToolHook, stop []StopHook) *ReviewEngine {
 	e.preToolHooks = pre
 	e.postToolHooks = post
@@ -279,7 +279,7 @@ func (e *ReviewEngine) Review(ctx context.Context, ad *types.AdContent) (*LoopRe
 	// callAPIStreaming has built-in non-streaming fallback on errors.
 	config.EnableStreaming = true
 
-	// 注入工具级 Hook（审计追踪、熔断保护等）。
+	// Inject tool-level hooks (audit trail, circuit-breaker protection, etc.).
 	config.PreToolHooks = e.preToolHooks
 	config.PostToolHooks = e.postToolHooks
 	config.StopHooks = e.stopHooks

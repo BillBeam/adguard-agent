@@ -14,18 +14,18 @@ import (
 	"github.com/BillBeam/adguard-agent/internal/types"
 )
 
-// --- LoopState: 审核生命周期状态 ---
+// --- LoopState: review lifecycle states ---
 
 // LoopState represents the current stage in the ad review lifecycle.
 type LoopState string
 
 const (
-	StatePending   LoopState = "PENDING"    // 广告已提交，等待处理
-	StateAnalyzing LoopState = "ANALYZING"  // Agent 循环中：工具调用分析
-	StateJudging   LoopState = "JUDGING"    // 分析完成，LLM 输出最终判定
-	StateDecided   LoopState = "DECIDED"    // 审核完成，已产出 ReviewResult
-	StateError     LoopState = "ERROR"      // 不可恢复错误
-	StateCancelled LoopState = "CANCELLED"  // 被取消 (context.Done)
+	StatePending   LoopState = "PENDING"    // Ad submitted, awaiting processing
+	StateAnalyzing LoopState = "ANALYZING"  // Inside the agent loop: tool-call analysis
+	StateJudging   LoopState = "JUDGING"    // Analysis complete, LLM producing final decision
+	StateDecided   LoopState = "DECIDED"    // Review complete, ReviewResult produced
+	StateError     LoopState = "ERROR"      // Unrecoverable error
+	StateCancelled LoopState = "CANCELLED"  // Cancelled (context.Done)
 )
 
 // IsTerminal returns true if the state is a terminal state (no further transitions).
@@ -33,22 +33,22 @@ func (s LoopState) IsTerminal() bool {
 	return s == StateDecided || s == StateError || s == StateCancelled
 }
 
-// --- TransitionReason: 状态转换原因 ---
+// --- TransitionReason: reasons for state transitions ---
 
 // TransitionReason describes why a state transition occurred.
 type TransitionReason string
 
 // Normal progression.
 const (
-	TransitionInitialized            TransitionReason = "initialized"              // 循环初始化
-	TransitionNextTurn               TransitionReason = "next_turn"                // 工具执行完，继续下一轮
-	TransitionConfidenceInsufficient TransitionReason = "confidence_insufficient"  // 置信度不足，转人审
+	TransitionInitialized            TransitionReason = "initialized"              // Loop initialized
+	TransitionNextTurn               TransitionReason = "next_turn"                // Tool execution done, continue next turn
+	TransitionConfidenceInsufficient TransitionReason = "confidence_insufficient"  // Confidence too low, escalate to manual review
 )
 
 // Recovery.
 const (
-	TransitionMaxOutputEscalate TransitionReason = "max_output_tokens_escalate" // 输出截断，升级 token 限制
-	TransitionMaxOutputRecovery TransitionReason = "max_output_tokens_recovery" // 输出截断，注入恢复消息
+	TransitionMaxOutputEscalate TransitionReason = "max_output_tokens_escalate" // Output truncated, escalate token limit
+	TransitionMaxOutputRecovery TransitionReason = "max_output_tokens_recovery" // Output truncated, inject recovery message
 	TransitionAutoCompact     TransitionReason = "auto_compact"      // proactive AutoCompact compression
 	TransitionReactiveCompact TransitionReason = "reactive_compact"  // reactive compression after prompt_too_long
 	TransitionBudgetExhausted TransitionReason = "budget_exhausted"  // token budget limit reached
@@ -56,14 +56,14 @@ const (
 
 // Termination.
 const (
-	TransitionCompleted     TransitionReason = "completed"       // 正常完成
-	TransitionMaxTurns      TransitionReason = "max_turns"       // 达到轮次上限
-	TransitionModelError    TransitionReason = "model_error"     // API 不可恢复错误
-	TransitionAborted       TransitionReason = "aborted"         // context 取消
-	TransitionPromptTooLong TransitionReason = "prompt_too_long" // prompt 超长且恢复失败
+	TransitionCompleted     TransitionReason = "completed"       // Normal completion
+	TransitionMaxTurns      TransitionReason = "max_turns"       // Turn limit reached
+	TransitionModelError    TransitionReason = "model_error"     // Unrecoverable API error
+	TransitionAborted       TransitionReason = "aborted"         // Context cancelled
+	TransitionPromptTooLong TransitionReason = "prompt_too_long" // Prompt too long and recovery failed
 )
 
-// --- TransitionRecord: 状态转换记录 ---
+// --- TransitionRecord: state transition record ---
 
 // TransitionRecord captures a single state transition for the audit trail.
 type TransitionRecord struct {
@@ -75,7 +75,7 @@ type TransitionRecord struct {
 	Detail    string           `json:"detail,omitempty"`
 }
 
-// --- PartialReviewResult: 审核过程中的累积结果 ---
+// --- PartialReviewResult: accumulated results during the review loop ---
 
 // PartialReviewResult accumulates intermediate findings during the review loop.
 type PartialReviewResult struct {
@@ -83,7 +83,7 @@ type PartialReviewResult struct {
 	AgentTrace []string
 }
 
-// --- State: 循环跨迭代状态 ---
+// --- State: cross-iteration loop state ---
 
 // State is the core data structure passed across loop iterations.
 type State struct {

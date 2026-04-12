@@ -133,16 +133,11 @@ func buildSystemPrompt(ad *types.AdContent, policies []types.Policy, plan types.
 	fmt.Fprintf(&b, "  Accessible: %v\n", ad.LandingPage.IsAccessible)
 	fmt.Fprintf(&b, "  Mobile Optimized: %v\n\n", ad.LandingPage.IsMobileOptimized)
 
-	// 4. Applicable policies（摘要，详情通过 query_policy_kb 按需查询）。
+	// 4. Applicable policies (summary; detailed text queried on-demand via query_policy_kb).
 	b.WriteString("=== APPLICABLE POLICIES (summary) ===\n")
 	b.WriteString("Use query_policy_kb tool for detailed policy text when needed.\n\n")
 	for i, p := range policies {
-		summary := p.RuleText
-		if idx := strings.Index(summary, ". "); idx >= 0 && idx < 80 {
-			summary = summary[:idx+1]
-		} else if len(summary) > 80 {
-			summary = summary[:80] + "..."
-		}
+		summary := truncatePolicySummary(p.RuleText, 80)
 		fmt.Fprintf(&b, "%d. [%s] severity=%s region=%s category=%s — %s\n",
 			i+1, p.ID, p.Severity, p.Region, p.Category, summary)
 	}

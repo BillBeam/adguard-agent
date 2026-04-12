@@ -11,18 +11,19 @@ import (
 	"github.com/BillBeam/adguard-agent/internal/types"
 )
 
-// LandingPageChecker — 感知环节
+// LandingPageChecker — Perception stage (感知)
 //
-// 业务归属：JD"面向全广告形态"的落地页审核——TikTok 广告最高频拒绝原因
-// 之一就是落地页问题（不可访问、素材与落地页不一致、缺少隐私政策、
-// 要求敏感信息）。
+// Landing page review for all ad formats. Landing page issues are among the
+// most frequent ad rejection reasons on TikTok (inaccessible pages, creative-to-LP
+// mismatch, missing privacy policy, requesting sensitive information).
 //
-// 在"感知-归因-研判-治理"链路中：
-//   - 感知：检测落地页的合规问题信号（可访问性、移动端适配、内容一致性、
-//     数据收集合规）
+// In the Perception-Attribution-Adjudication-Governance (感知-归因-研判-治理) pipeline:
+//   - Perception (感知): detects landing page compliance signals (accessibility,
+//     mobile optimization, content consistency, data collection compliance)
 //
-// 实现方式：规则层（可访问性/移动端/关键词检测）+ LLM 层（内容一致性检查）。
-// LLM 调用失败时仅返回规则层结果（降级不阻塞）。
+// Implementation: rule layer (accessibility/mobile/keyword detection) + LLM layer
+// (content consistency check). On LLM failure, returns rule-layer results only
+// (graceful degradation, non-blocking).
 type LandingPageChecker struct {
 	BaseTool
 	client llm.LLMClient
@@ -82,7 +83,7 @@ func (l *LandingPageChecker) ValidateInput(args json.RawMessage) error {
 	return nil
 }
 
-// Execute — 感知：落地页合规检查（规则层 + LLM 内容一致性层）。
+// Execute performs Perception (感知) stage: landing page compliance check (rule layer + LLM content consistency layer).
 func (l *LandingPageChecker) Execute(ctx context.Context, args json.RawMessage) (string, error) {
 	var input struct {
 		URL               string `json:"url"`

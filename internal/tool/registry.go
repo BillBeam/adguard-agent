@@ -79,8 +79,8 @@ func (r *Registry) Sub(names ...string) *Registry {
 	return sub
 }
 
-// NewReviewRegistry 创建预加载全部审核工具的注册表。
-// rs 为 nil 时 HistoryLookup 退化为纯内存模式（向后兼容）。
+// NewReviewRegistry creates a registry pre-loaded with all review tools.
+// When rs is nil, HistoryLookup falls back to in-memory mode (backward compatible).
 func NewReviewRegistry(
 	client llm.LLMClient,
 	matrix *strategy.StrategyMatrix,

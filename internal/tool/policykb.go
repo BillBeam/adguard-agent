@@ -11,18 +11,19 @@ import (
 	"github.com/BillBeam/adguard-agent/internal/types"
 )
 
-// PolicyKBLookup — 按需查询策略知识库
+// PolicyKBLookup — on-demand policy knowledge base query
 //
-// 业务归属：JD"沉淀通用策略平台"的 Agent 接口。
-// 不同角色的 Agent 按需查询策略详情，而非启动时全量加载所有策略文本。
-// 查询支持：policy_id 精确查找、region/category 过滤、keyword 全文搜索。
+// Part of the Universal Strategy Platform: the Agent interface for policy lookup.
+// Different specialist Agents query policy details on demand instead of bulk-loading
+// all policy text at startup.
+// Query modes: exact policy_id lookup, region/category filtering, keyword full-text search.
 type PolicyKBLookup struct {
 	BaseTool
 	matrix *strategy.StrategyMatrix
 	logger *slog.Logger
 }
 
-// NewPolicyKBLookup 创建策略知识库查询工具。
+// NewPolicyKBLookup creates a PolicyKBLookup tool.
 func NewPolicyKBLookup(matrix *strategy.StrategyMatrix, logger *slog.Logger) *PolicyKBLookup {
 	return &PolicyKBLookup{
 		BaseTool: ReviewToolBase(),
@@ -44,10 +45,10 @@ func (p *PolicyKBLookup) InputSchema() json.RawMessage {
 	return json.RawMessage(`{
 		"type": "object",
 		"properties": {
-			"policy_id": {"type": "string", "description": "策略 ID（如 POL_001）"},
-			"region":    {"type": "string", "description": "按地区过滤（如 US, EU, MENA_SA）"},
-			"category":  {"type": "string", "description": "按品类过滤（如 healthcare, alcohol）"},
-			"keyword":   {"type": "string", "description": "在策略原文中搜索关键词（不区分大小写）"}
+			"policy_id": {"type": "string", "description": "Policy ID (e.g. POL_001)"},
+			"region":    {"type": "string", "description": "Filter by region (e.g. US, EU, MENA_SA)"},
+			"category":  {"type": "string", "description": "Filter by category (e.g. healthcare, alcohol)"},
+			"keyword":   {"type": "string", "description": "Search keyword in policy rule text (case-insensitive)"}
 		}
 	}`)
 }
@@ -55,14 +56,14 @@ func (p *PolicyKBLookup) InputSchema() json.RawMessage {
 func (p *PolicyKBLookup) ValidateInput(args json.RawMessage) error {
 	var input policyKBInput
 	if isJSONString(args) {
-		// LLM 有时直接传字符串，视为 keyword 搜索。
+		// LLM sometimes passes a bare string — treat as keyword search.
 		return nil
 	}
 	if err := json.Unmarshal(args, &input); err != nil {
 		return fmt.Errorf("parsing input: %w", err)
 	}
 	if input.PolicyID == "" && input.Region == "" && input.Category == "" && input.Keyword == "" {
-		return fmt.Errorf("至少需要提供一个查询参数: policy_id, region, category, 或 keyword")
+		return fmt.Errorf("at least one query parameter is required: policy_id, region, category, or keyword")
 	}
 	return nil
 }
@@ -82,20 +83,20 @@ func (p *PolicyKBLookup) Execute(_ context.Context, args json.RawMessage) (strin
 		return "", fmt.Errorf("parsing input: %w", err)
 	}
 
-	// 精确 ID 查找：O(1) 直接命中。
+	// Exact ID lookup: O(1) direct hit.
 	if input.PolicyID != "" {
 		if pol, ok := p.matrix.Policies[input.PolicyID]; ok {
 			result, _ := json.Marshal([]types.Policy{pol})
 			return string(result), nil
 		}
-		// ID 存在但其他条件也可能匹配，继续扫描。
+		// ID present but other filters may also match — continue scanning.
 		if input.Region == "" && input.Category == "" && input.Keyword == "" {
 			result, _ := json.Marshal([]types.Policy{})
 			return string(result), nil
 		}
 	}
 
-	// 全量扫描：按 region/category/keyword 组合过滤。
+	// Full scan: filter by region/category/keyword combination.
 	var matches []types.Policy
 	kwLower := strings.ToLower(input.Keyword)
 
@@ -115,7 +116,7 @@ func (p *PolicyKBLookup) Execute(_ context.Context, args json.RawMessage) (strin
 		matches = append(matches, pol)
 	}
 
-	p.logger.Debug("策略知识库查询",
+	p.logger.Debug("policy KB query",
 		slog.String("policy_id", input.PolicyID),
 		slog.String("region", input.Region),
 		slog.String("category", input.Category),
@@ -127,8 +128,8 @@ func (p *PolicyKBLookup) Execute(_ context.Context, args json.RawMessage) (strin
 	return string(result), nil
 }
 
-// policyMatchesRegion 检查策略是否匹配目标地区。
-// 匹配规则：Global 匹配所有、精确匹配、前缀匹配（策略 "MENA" 匹配输入 "MENA_SA"）。
+// policyMatchesRegion checks whether a policy applies to the target region.
+// Match rules: Global matches all, exact match, prefix match (policy "MENA" matches input "MENA_SA").
 func policyMatchesRegion(pol types.Policy, region string) bool {
 	if pol.Region == "Global" {
 		return true
@@ -136,7 +137,7 @@ func policyMatchesRegion(pol types.Policy, region string) bool {
 	if pol.Region == region {
 		return true
 	}
-	// 前缀匹配：策略 "MENA" 匹配地区 "MENA_SA"。
+	// Prefix match: policy "MENA" matches region "MENA_SA".
 	if strings.HasPrefix(region, pol.Region+"_") || strings.HasPrefix(pol.Region, region+"_") {
 		return true
 	}

@@ -26,11 +26,11 @@ type accumulatedToolCall struct {
 	name      string
 	arguments strings.Builder // JSON fragments accumulated across chunks
 	submitted bool
-	// JSON 边界检测状态机：逐字符追踪大括号深度，depth 回到 0 时表示 JSON 完整。
-	depth    int  // 大括号/中括号嵌套深度
-	inString bool // 当前位于 JSON 字符串内部？
-	escaped  bool // 前一个字符是反斜杠？
-	complete bool // depth 从 >0 回到 0，JSON 对象完整
+	// JSON boundary detection state machine: tracks brace depth char-by-char; depth returning to 0 means JSON is complete.
+	depth    int  // Brace/bracket nesting depth
+	inString bool // Currently inside a JSON string?
+	escaped  bool // Previous character was a backslash?
+	complete bool // Depth went from >0 back to 0; JSON object is complete
 }
 
 // StreamAccumulator builds a complete API response from streaming chunks.
@@ -100,7 +100,7 @@ func (a *StreamAccumulator) ProcessChunk(chunk *types.ChatCompletionChunk) {
 			if len(tc.Function.Arguments) > 0 {
 				frag := string(tc.Function.Arguments)
 				atc.arguments.WriteString(frag)
-				// 增量 JSON 边界检测：参数完整时立即提交，不等后续工具。
+				// Incremental JSON boundary detection: submit as soon as arguments are complete, don't wait for subsequent tools.
 				atc.trackJSONBoundary(frag)
 				if atc.complete && !atc.submitted {
 					a.submitTool(idx)
@@ -123,14 +123,14 @@ func (a *StreamAccumulator) Finalize() {
 	}
 }
 
-// submitUpTo 提交所有 index <= maxIdx 且未提交的工具调用。
+// submitUpTo submits all tool calls with index <= maxIdx that haven't been submitted yet.
 func (a *StreamAccumulator) submitUpTo(maxIdx int) {
 	for idx := 0; idx <= maxIdx; idx++ {
 		a.submitTool(idx)
 	}
 }
 
-// submitTool 提交单个工具调用。已提交的跳过（幂等）。
+// submitTool submits a single tool call. Skips if already submitted (idempotent).
 func (a *StreamAccumulator) submitTool(idx int) {
 	atc, ok := a.toolCalls[idx]
 	if !ok || atc.submitted {
@@ -140,16 +140,16 @@ func (a *StreamAccumulator) submitTool(idx int) {
 
 	if a.executor != nil {
 		a.executor.AddTool(atc.id, atc.name, atc.arguments.String())
-		a.logger.Debug("stream accumulator: 工具调用已提交",
+		a.logger.Debug("stream accumulator: tool call submitted",
 			slog.Int("index", idx),
 			slog.String("tool", atc.name),
 		)
 	}
 }
 
-// trackJSONBoundary 扫描 JSON 片段检测对象/数组边界完成。
-// 逐字符追踪大括号深度、字符串上下文和转义序列。
-// 当 depth 从正值回到 0 时，JSON 对象完整，可立即提交。
+// trackJSONBoundary scans JSON fragments to detect object/array boundary completion.
+// Tracks brace depth, string context, and escape sequences character by character.
+// When depth drops from positive back to 0, the JSON object is complete and can be submitted immediately.
 func (atc *accumulatedToolCall) trackJSONBoundary(fragment string) {
 	if atc.complete {
 		return
