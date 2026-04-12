@@ -49,6 +49,11 @@ type ReviewEngine struct {
 
 	// Model routing: per-pipeline and per-role model selection.
 	router *llm.ModelRouter // nil = use LLM client default model
+
+	// 工具级 Hook：注入到每个 LoopConfig，实现审计追踪和熔断保护。
+	preToolHooks  []PreToolHook
+	postToolHooks []PostToolHook
+	stopHooks     []StopHook
 }
 
 // NewReviewEngine creates a review engine with the given tools.
@@ -116,6 +121,14 @@ func (e *ReviewEngine) WithPhase5(
 // pipeline (fast/standard/comprehensive) and agent role (content/policy/region/adjudicator).
 func (e *ReviewEngine) WithModelRouter(router *llm.ModelRouter) *ReviewEngine {
 	e.router = router
+	return e
+}
+
+// WithHooks 注入工具级 Hook。每次构建 LoopConfig 时自动设置。
+func (e *ReviewEngine) WithHooks(pre []PreToolHook, post []PostToolHook, stop []StopHook) *ReviewEngine {
+	e.preToolHooks = pre
+	e.postToolHooks = post
+	e.stopHooks = stop
 	return e
 }
 
@@ -265,6 +278,11 @@ func (e *ReviewEngine) Review(ctx context.Context, ad *types.AdContent) (*LoopRe
 	// Streaming: dispatch tools during LLM response for lower latency.
 	// callAPIStreaming has built-in non-streaming fallback on errors.
 	config.EnableStreaming = true
+
+	// 注入工具级 Hook（审计追踪、熔断保护等）。
+	config.PreToolHooks = e.preToolHooks
+	config.PostToolHooks = e.postToolHooks
+	config.StopHooks = e.stopHooks
 
 	// 3. Initialize state.
 	state := NewState(ad)

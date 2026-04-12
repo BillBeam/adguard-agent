@@ -117,7 +117,7 @@ func TestAccumulator_SingleToolCall(t *testing.T) {
 func TestAccumulator_MultipleToolCalls(t *testing.T) {
 	// Use a streaming executor to verify AddTool was called correctly.
 	testExec := &trackingExecutor{}
-	se := NewStreamingToolExecutor(context.Background(), testExec, nil, testLogger())
+	se := NewStreamingToolExecutor(context.Background(), testExec, nil, nil, nil, testLogger())
 	acc := NewStreamAccumulator(se, testLogger())
 
 	// First tool call (index 0).
@@ -144,12 +144,13 @@ func TestAccumulator_MultipleToolCalls(t *testing.T) {
 		}},
 	})
 
-	// After index 1 appears, only index 0 has been submitted (index 1 not yet complete).
-	if se.ToolCount() != 1 {
-		t.Errorf("after index 1 appears, ToolCount = %d, want 1 (only index 0)", se.ToolCount())
+	// 两个工具调用的 JSON 都在各自 chunk 中完整——边界检测会立即提交两者。
+	// index 0 因 "new index" 触发提交，index 1 因 JSON 边界检测立即提交。
+	if se.ToolCount() != 2 {
+		t.Errorf("after index 1 appears, ToolCount = %d, want 2 (both submitted by boundary detection)", se.ToolCount())
 	}
 
-	// Finalize submits index 1.
+	// Finalize 是幂等的——已提交的不会重复。
 	acc.Finalize()
 	if se.ToolCount() != 2 {
 		t.Errorf("after Finalize, ToolCount = %d, want 2", se.ToolCount())
@@ -170,7 +171,7 @@ func TestAccumulator_MultipleToolCalls(t *testing.T) {
 
 func TestAccumulator_FinishReasonSubmitsLast(t *testing.T) {
 	testExec := &trackingExecutor{}
-	se := NewStreamingToolExecutor(context.Background(), testExec, nil, testLogger())
+	se := NewStreamingToolExecutor(context.Background(), testExec, nil, nil, nil, testLogger())
 	acc := NewStreamAccumulator(se, testLogger())
 
 	// Single tool call.
@@ -185,12 +186,12 @@ func TestAccumulator_FinishReasonSubmitsLast(t *testing.T) {
 		}},
 	})
 
-	// Before Finalize: tool should not yet be in executor (only one index, no new index to trigger).
-	if se.ToolCount() != 0 {
-		t.Errorf("before Finalize, ToolCount = %d, want 0", se.ToolCount())
+	// JSON 边界检测：{} 在 chunk 中即完整，立即提交，不等 Finalize。
+	if se.ToolCount() != 1 {
+		t.Errorf("before Finalize, ToolCount = %d, want 1 (JSON boundary detected)", se.ToolCount())
 	}
 
-	// Finalize triggers submission of the last tool.
+	// Finalize 幂等——已提交的不重复。
 	acc.Finalize()
 	if se.ToolCount() != 1 {
 		t.Errorf("after Finalize, ToolCount = %d, want 1", se.ToolCount())
@@ -214,6 +215,182 @@ func TestAccumulator_BuildResponse_Model(t *testing.T) {
 	resp := acc.BuildResponse()
 	if resp.Model != "grok-4-1-fast-reasoning" {
 		t.Errorf("model = %q, want grok-4-1-fast-reasoning", resp.Model)
+	}
+}
+
+// --- JSON 边界检测测试 ---
+
+func TestAccumulator_JSONBoundary_MultiChunkEarlySubmission(t *testing.T) {
+	testExec := &trackingExecutor{}
+	se := NewStreamingToolExecutor(context.Background(), testExec, nil, nil, nil, testLogger())
+	acc := NewStreamAccumulator(se, testLogger())
+
+	// 第一个 chunk：工具名 + 部分参数。
+	acc.ProcessChunk(&types.ChatCompletionChunk{
+		Choices: []types.StreamChoice{{
+			Delta: types.Message{
+				ToolCalls: []types.ToolCall{{
+					Index: 0, ID: "c1", Type: "function",
+					Function: types.ToolCallFunction{Name: "my_tool", Arguments: []byte(`{"head`)},
+				}},
+			},
+		}},
+	})
+	if se.ToolCount() != 0 {
+		t.Errorf("chunk 1: ToolCount = %d, want 0 (JSON incomplete)", se.ToolCount())
+	}
+
+	// 第二个 chunk：更多参数。
+	acc.ProcessChunk(&types.ChatCompletionChunk{
+		Choices: []types.StreamChoice{{
+			Delta: types.Message{
+				ToolCalls: []types.ToolCall{{
+					Index: 0,
+					Function: types.ToolCallFunction{Arguments: []byte(`line":"te`)},
+				}},
+			},
+		}},
+	})
+	if se.ToolCount() != 0 {
+		t.Errorf("chunk 2: ToolCount = %d, want 0 (JSON still incomplete)", se.ToolCount())
+	}
+
+	// 第三个 chunk：闭合大括号，JSON 完整。
+	acc.ProcessChunk(&types.ChatCompletionChunk{
+		Choices: []types.StreamChoice{{
+			Delta: types.Message{
+				ToolCalls: []types.ToolCall{{
+					Index: 0,
+					Function: types.ToolCallFunction{Arguments: []byte(`st"}`)},
+				}},
+			},
+		}},
+	})
+	if se.ToolCount() != 1 {
+		t.Errorf("chunk 3: ToolCount = %d, want 1 (JSON complete, should submit)", se.ToolCount())
+	}
+}
+
+func TestAccumulator_JSONBoundary_NestedObjects(t *testing.T) {
+	testExec := &trackingExecutor{}
+	se := NewStreamingToolExecutor(context.Background(), testExec, nil, nil, nil, testLogger())
+	acc := NewStreamAccumulator(se, testLogger())
+
+	// 嵌套对象：{"outer":{"inner":1}} — 内层 } 不应触发提交。
+	acc.ProcessChunk(&types.ChatCompletionChunk{
+		Choices: []types.StreamChoice{{
+			Delta: types.Message{
+				ToolCalls: []types.ToolCall{{
+					Index: 0, ID: "c1", Type: "function",
+					Function: types.ToolCallFunction{Name: "t", Arguments: []byte(`{"outer":{"inner":1}`)},
+				}},
+			},
+		}},
+	})
+	if se.ToolCount() != 0 {
+		t.Errorf("nested inner close: ToolCount = %d, want 0", se.ToolCount())
+	}
+
+	acc.ProcessChunk(&types.ChatCompletionChunk{
+		Choices: []types.StreamChoice{{
+			Delta: types.Message{
+				ToolCalls: []types.ToolCall{{
+					Index: 0,
+					Function: types.ToolCallFunction{Arguments: []byte(`}`)},
+				}},
+			},
+		}},
+	})
+	if se.ToolCount() != 1 {
+		t.Errorf("outer close: ToolCount = %d, want 1", se.ToolCount())
+	}
+}
+
+func TestAccumulator_JSONBoundary_StringWithBraces(t *testing.T) {
+	testExec := &trackingExecutor{}
+	se := NewStreamingToolExecutor(context.Background(), testExec, nil, nil, nil, testLogger())
+	acc := NewStreamAccumulator(se, testLogger())
+
+	// 字符串内的大括号不应影响深度追踪。
+	acc.ProcessChunk(&types.ChatCompletionChunk{
+		Choices: []types.StreamChoice{{
+			Delta: types.Message{
+				ToolCalls: []types.ToolCall{{
+					Index: 0, ID: "c1", Type: "function",
+					Function: types.ToolCallFunction{Name: "t", Arguments: []byte(`{"text":"a } b { c"}`)},
+				}},
+			},
+		}},
+	})
+	if se.ToolCount() != 1 {
+		t.Errorf("string with braces: ToolCount = %d, want 1", se.ToolCount())
+	}
+}
+
+func TestAccumulator_JSONBoundary_EscapedQuotes(t *testing.T) {
+	testExec := &trackingExecutor{}
+	se := NewStreamingToolExecutor(context.Background(), testExec, nil, nil, nil, testLogger())
+	acc := NewStreamAccumulator(se, testLogger())
+
+	// 转义引号 \" 不应退出字符串上下文。
+	acc.ProcessChunk(&types.ChatCompletionChunk{
+		Choices: []types.StreamChoice{{
+			Delta: types.Message{
+				ToolCalls: []types.ToolCall{{
+					Index: 0, ID: "c1", Type: "function",
+					Function: types.ToolCallFunction{Name: "t", Arguments: []byte(`{"val":"a\"b}c"}`)},
+				}},
+			},
+		}},
+	})
+	if se.ToolCount() != 1 {
+		t.Errorf("escaped quotes: ToolCount = %d, want 1", se.ToolCount())
+	}
+}
+
+func TestAccumulator_JSONBoundary_ArrayInObject(t *testing.T) {
+	testExec := &trackingExecutor{}
+	se := NewStreamingToolExecutor(context.Background(), testExec, nil, nil, nil, testLogger())
+	acc := NewStreamAccumulator(se, testLogger())
+
+	acc.ProcessChunk(&types.ChatCompletionChunk{
+		Choices: []types.StreamChoice{{
+			Delta: types.Message{
+				ToolCalls: []types.ToolCall{{
+					Index: 0, ID: "c1", Type: "function",
+					Function: types.ToolCallFunction{Name: "t", Arguments: []byte(`{"items":[1,2,3]}`)},
+				}},
+			},
+		}},
+	})
+	if se.ToolCount() != 1 {
+		t.Errorf("array in object: ToolCount = %d, want 1", se.ToolCount())
+	}
+}
+
+func TestAccumulator_JSONBoundary_IncompleteStillNeedsFinalize(t *testing.T) {
+	testExec := &trackingExecutor{}
+	se := NewStreamingToolExecutor(context.Background(), testExec, nil, nil, nil, testLogger())
+	acc := NewStreamAccumulator(se, testLogger())
+
+	// JSON 不完整（缺闭合括号），只能靠 Finalize 提交。
+	acc.ProcessChunk(&types.ChatCompletionChunk{
+		Choices: []types.StreamChoice{{
+			Delta: types.Message{
+				ToolCalls: []types.ToolCall{{
+					Index: 0, ID: "c1", Type: "function",
+					Function: types.ToolCallFunction{Name: "t", Arguments: []byte(`{"incomplete":true`)},
+				}},
+			},
+		}},
+	})
+	if se.ToolCount() != 0 {
+		t.Errorf("incomplete JSON: ToolCount = %d, want 0", se.ToolCount())
+	}
+
+	acc.Finalize()
+	if se.ToolCount() != 1 {
+		t.Errorf("after Finalize: ToolCount = %d, want 1", se.ToolCount())
 	}
 }
 

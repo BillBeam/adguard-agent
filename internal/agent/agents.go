@@ -43,9 +43,9 @@ func SpecialistAgentSpecs(pipeline string) []AgentSpec {
 		turnMultiplier = 6
 	}
 	return []AgentSpec{
-		{Role: RoleContent, Tools: []string{"analyze_content", "match_policies"}, MaxTurns: turnMultiplier},
-		{Role: RolePolicy, Tools: []string{"match_policies", "check_region_compliance"}, MaxTurns: turnMultiplier},
-		{Role: RoleRegion, Tools: []string{"check_region_compliance", "check_landing_page", "lookup_history"}, MaxTurns: turnMultiplier},
+		{Role: RoleContent, Tools: []string{"analyze_content", "check_landing_page"}, MaxTurns: turnMultiplier},
+		{Role: RolePolicy, Tools: []string{"match_policies", "query_policy_kb"}, MaxTurns: turnMultiplier},
+		{Role: RoleRegion, Tools: []string{"check_region_compliance", "query_policy_kb", "lookup_history"}, MaxTurns: turnMultiplier},
 	}
 }
 
@@ -153,7 +153,7 @@ func buildContentAgentPrompt(b *strings.Builder, ad *types.AdContent, policies [
 
 	b.WriteString("=== YOUR TASK ===\n")
 	b.WriteString("1. Use analyze_content to detect content signals (claims, Algospeak, misleading text).\n")
-	b.WriteString("2. Use match_policies to check which policies the detected signals violate.\n")
+	b.WriteString("2. Use check_landing_page to verify landing page compliance and ad-content consistency.\n")
 	b.WriteString("3. Output your analysis as JSON.\n\n")
 
 	writeAgentOutputFormat(b)
@@ -170,7 +170,7 @@ func buildPolicyAgentPrompt(b *strings.Builder, ad *types.AdContent, policies []
 
 	b.WriteString("=== YOUR TASK ===\n")
 	b.WriteString("1. Use match_policies to identify applicable policy violations for this region+category.\n")
-	b.WriteString("2. Use check_region_compliance to verify region-specific regulatory requirements.\n")
+	b.WriteString("2. Use query_policy_kb to look up detailed policy text when you need full rule specifications.\n")
 	b.WriteString("3. Focus on: category admission, required qualifications, mandatory disclosures.\n")
 	b.WriteString("4. Output your analysis as JSON.\n\n")
 
@@ -188,7 +188,7 @@ func buildRegionAgentPrompt(b *strings.Builder, ad *types.AdContent, policies []
 
 	b.WriteString("=== YOUR TASK ===\n")
 	b.WriteString("1. Use check_region_compliance to check if this category is prohibited/restricted in the target region.\n")
-	b.WriteString("2. Use check_landing_page to verify landing page compliance (accessibility, privacy, data collection).\n")
+	b.WriteString("2. Use query_policy_kb to look up region-specific policy details when needed.\n")
 	b.WriteString("3. Use lookup_history to check the advertiser's compliance record and similar past cases.\n")
 	b.WriteString("4. For MENA regions: pay special attention to Sharia compliance and cultural sensitivity.\n")
 	b.WriteString("5. Output your analysis as JSON.\n\n")
@@ -216,12 +216,26 @@ func writeAdContent(b *strings.Builder, ad *types.AdContent) {
 }
 
 func writePolicies(b *strings.Builder, policies []types.Policy) {
-	b.WriteString("=== APPLICABLE POLICIES ===\n")
+	b.WriteString("=== APPLICABLE POLICIES (summary) ===\n")
+	b.WriteString("Use query_policy_kb tool to look up detailed policy text when needed.\n\n")
 	for i, p := range policies {
-		fmt.Fprintf(b, "%d. [%s] severity=%s region=%s category=%s\n", i+1, p.ID, p.Severity, p.Region, p.Category)
-		fmt.Fprintf(b, "   Rule: %s\n", p.RuleText)
+		summary := truncatePolicySummary(p.RuleText, 80)
+		fmt.Fprintf(b, "%d. [%s] severity=%s region=%s category=%s — %s\n",
+			i+1, p.ID, p.Severity, p.Region, p.Category, summary)
 	}
 	b.WriteString("\n")
+}
+
+// truncatePolicySummary 截取策略文本的第一句或前 maxLen 个字符。
+func truncatePolicySummary(text string, maxLen int) string {
+	// 取第一句话。
+	if idx := strings.Index(text, ". "); idx >= 0 && idx < maxLen {
+		return text[:idx+1]
+	}
+	if len(text) <= maxLen {
+		return text
+	}
+	return text[:maxLen] + "..."
 }
 
 func writeAgentOutputFormat(b *strings.Builder) {

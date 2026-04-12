@@ -122,3 +122,101 @@ func TestTrainingPool_PostReviewHook_SkipsManualReview(t *testing.T) {
 		t.Errorf("MANUAL_REVIEW should be skipped, got %d", tp.Len())
 	}
 }
+
+// --- Active Learning 测试 ---
+
+func TestTrainingPool_PostReviewHook_BoundaryCaseActiveLearning(t *testing.T) {
+	tp := NewTrainingPool(testLogger(), "")
+	tp.PostReview(types.ReviewResult{AdID: "ad_boundary", Decision: types.DecisionRejected, Confidence: 0.5},
+		"adv", "US", "healthcare", "standard")
+
+	if tp.Len() != 1 {
+		t.Fatalf("边界案例（0.5）应被采集，got %d", tp.Len())
+	}
+	rec := tp.Export()[0]
+	if rec.Source != SourceActiveLearning {
+		t.Errorf("Source = %q, want %q", rec.Source, SourceActiveLearning)
+	}
+	if rec.Priority != "high" {
+		t.Errorf("Priority = %q, want 'high'", rec.Priority)
+	}
+}
+
+func TestTrainingPool_PostReviewHook_BoundaryEdges(t *testing.T) {
+	tests := []struct {
+		name       string
+		confidence float64
+		wantLen    int
+	}{
+		{"边界下沿 0.4", 0.4, 1},
+		{"边界上沿 0.6", 0.6, 1},
+		{"间隙区 0.7 不采集", 0.7, 0},
+		{"间隙区 0.3 不采集", 0.3, 0},
+		{"间隙区 0.89 不采集", 0.89, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tp := NewTrainingPool(testLogger(), "")
+			tp.PostReview(types.ReviewResult{AdID: "ad_edge", Decision: types.DecisionRejected, Confidence: tt.confidence},
+				"adv", "US", "healthcare", "standard")
+			if tp.Len() != tt.wantLen {
+				t.Errorf("confidence=%.1f: got %d records, want %d", tt.confidence, tp.Len(), tt.wantLen)
+			}
+		})
+	}
+}
+
+func TestTrainingPool_PostReviewHook_ManualReviewBoundary(t *testing.T) {
+	tp := NewTrainingPool(testLogger(), "")
+	tp.PostReview(types.ReviewResult{AdID: "ad_mr_bd", Decision: types.DecisionManualReview, Confidence: 0.5},
+		"adv", "US", "healthcare", "standard")
+
+	if tp.Len() != 0 {
+		t.Errorf("MANUAL_REVIEW 即使在边界区间也不应采集，got %d", tp.Len())
+	}
+}
+
+func TestTrainingPool_PostReviewHook_HighConfidenceNormalPriority(t *testing.T) {
+	tp := NewTrainingPool(testLogger(), "")
+	tp.PostReview(types.ReviewResult{AdID: "ad_hi", Decision: types.DecisionPassed, Confidence: 0.95},
+		"adv", "US", "healthcare", "standard")
+
+	if tp.Len() != 1 {
+		t.Fatalf("高置信度应被采集，got %d", tp.Len())
+	}
+	rec := tp.Export()[0]
+	if rec.Priority != "normal" {
+		t.Errorf("Priority = %q, want 'normal'", rec.Priority)
+	}
+	if rec.Source != SourceReview {
+		t.Errorf("Source = %q, want %q", rec.Source, SourceReview)
+	}
+}
+
+func TestTrainingPool_Stats_HighPriorityCount(t *testing.T) {
+	tp := NewTrainingPool(testLogger(), "")
+	tp.Add(&TrainingRecord{AdID: "ad_1", Source: SourceReview, Region: "US", Priority: "normal"})
+	tp.Add(&TrainingRecord{AdID: "ad_2", Source: SourceActiveLearning, Region: "US", Priority: "high"})
+	tp.Add(&TrainingRecord{AdID: "ad_3", Source: SourceActiveLearning, Region: "EU", Priority: "high"})
+
+	stats := tp.Stats()
+	if stats.HighPriorityCount != 2 {
+		t.Errorf("HighPriorityCount = %d, want 2", stats.HighPriorityCount)
+	}
+	if stats.BySource[SourceActiveLearning] != 2 {
+		t.Errorf("BySource[active_learning] = %d, want 2", stats.BySource[SourceActiveLearning])
+	}
+}
+
+func TestTrainingPool_QueryByPriority(t *testing.T) {
+	tp := NewTrainingPool(testLogger(), "")
+	tp.Add(&TrainingRecord{AdID: "ad_1", Source: SourceReview, Region: "US", Priority: "normal"})
+	tp.Add(&TrainingRecord{AdID: "ad_2", Source: SourceActiveLearning, Region: "US", Priority: "high"})
+	tp.Add(&TrainingRecord{AdID: "ad_3", Source: SourceActiveLearning, Region: "EU", Priority: "high"})
+
+	priority := "high"
+	results := tp.Query(TrainingFilter{Priority: &priority})
+	if len(results) != 2 {
+		t.Errorf("expected 2 high-priority records, got %d", len(results))
+	}
+}

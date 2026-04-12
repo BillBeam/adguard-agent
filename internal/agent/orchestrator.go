@@ -39,6 +39,10 @@ type Orchestrator struct {
 	router     *llm.ModelRouter  // nil = use client default
 	onProgress ProgressFunc      // nil = no progress reporting
 	logger     *slog.Logger
+	// 工具级 Hook：注入到每个 specialist 和 adjudicator 的 LoopConfig。
+	preToolHooks  []PreToolHook
+	postToolHooks []PostToolHook
+	stopHooks     []StopHook
 }
 
 // NewOrchestrator creates a Multi-Agent orchestrator.
@@ -65,6 +69,14 @@ func (o *Orchestrator) WithProgress(fn ProgressFunc) *Orchestrator {
 // WithModelRouter attaches model routing for per-agent model selection.
 func (o *Orchestrator) WithModelRouter(router *llm.ModelRouter) *Orchestrator {
 	o.router = router
+	return o
+}
+
+// WithHooks 注入工具级 Hook 到所有 specialist 和 adjudicator Agent。
+func (o *Orchestrator) WithHooks(pre []PreToolHook, post []PostToolHook, stop []StopHook) *Orchestrator {
+	o.preToolHooks = pre
+	o.postToolHooks = post
+	o.stopHooks = stop
 	return o
 }
 
@@ -213,6 +225,11 @@ func (o *Orchestrator) runSingleAgent(
 
 	config.EnableStreaming = true
 
+	// 注入工具级 Hook。
+	config.PreToolHooks = o.preToolHooks
+	config.PostToolHooks = o.postToolHooks
+	config.StopHooks = o.stopHooks
+
 	// Build isolated state — each agent starts with fresh messages.
 	state := NewState(ad)
 	state.Messages = buildInitialMessages(config.SystemPrompt)
@@ -288,6 +305,11 @@ func (o *Orchestrator) runAdjudicator(
 	}
 
 	config.EnableStreaming = true
+
+	// Adjudicator 无工具，PreToolHooks 不会触发，但 StopHooks 仍有意义。
+	config.PreToolHooks = o.preToolHooks
+	config.PostToolHooks = o.postToolHooks
+	config.StopHooks = o.stopHooks
 
 	state := NewState(ad)
 	state.Messages = []types.Message{

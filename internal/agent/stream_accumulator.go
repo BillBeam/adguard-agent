@@ -26,6 +26,11 @@ type accumulatedToolCall struct {
 	name      string
 	arguments strings.Builder // JSON fragments accumulated across chunks
 	submitted bool
+	// JSON 边界检测状态机：逐字符追踪大括号深度，depth 回到 0 时表示 JSON 完整。
+	depth    int  // 大括号/中括号嵌套深度
+	inString bool // 当前位于 JSON 字符串内部？
+	escaped  bool // 前一个字符是反斜杠？
+	complete bool // depth 从 >0 回到 0，JSON 对象完整
 }
 
 // StreamAccumulator builds a complete API response from streaming chunks.
@@ -93,8 +98,13 @@ func (a *StreamAccumulator) ProcessChunk(chunk *types.ChatCompletionChunk) {
 				atc.name = tc.Function.Name
 			}
 			if len(tc.Function.Arguments) > 0 {
-				// Arguments arrive as raw JSON string fragments.
-				atc.arguments.WriteString(string(tc.Function.Arguments))
+				frag := string(tc.Function.Arguments)
+				atc.arguments.WriteString(frag)
+				// 增量 JSON 边界检测：参数完整时立即提交，不等后续工具。
+				atc.trackJSONBoundary(frag)
+				if atc.complete && !atc.submitted {
+					a.submitTool(idx)
+				}
 			}
 		}
 
@@ -113,21 +123,62 @@ func (a *StreamAccumulator) Finalize() {
 	}
 }
 
-// submitUpTo submits all non-submitted tool calls with index <= maxIdx.
+// submitUpTo 提交所有 index <= maxIdx 且未提交的工具调用。
 func (a *StreamAccumulator) submitUpTo(maxIdx int) {
 	for idx := 0; idx <= maxIdx; idx++ {
-		atc, ok := a.toolCalls[idx]
-		if !ok || atc.submitted {
+		a.submitTool(idx)
+	}
+}
+
+// submitTool 提交单个工具调用。已提交的跳过（幂等）。
+func (a *StreamAccumulator) submitTool(idx int) {
+	atc, ok := a.toolCalls[idx]
+	if !ok || atc.submitted {
+		return
+	}
+	atc.submitted = true
+
+	if a.executor != nil {
+		a.executor.AddTool(atc.id, atc.name, atc.arguments.String())
+		a.logger.Debug("stream accumulator: 工具调用已提交",
+			slog.Int("index", idx),
+			slog.String("tool", atc.name),
+		)
+	}
+}
+
+// trackJSONBoundary 扫描 JSON 片段检测对象/数组边界完成。
+// 逐字符追踪大括号深度、字符串上下文和转义序列。
+// 当 depth 从正值回到 0 时，JSON 对象完整，可立即提交。
+func (atc *accumulatedToolCall) trackJSONBoundary(fragment string) {
+	if atc.complete {
+		return
+	}
+	for _, ch := range fragment {
+		if atc.escaped {
+			atc.escaped = false
 			continue
 		}
-		atc.submitted = true
-
-		if a.executor != nil {
-			a.executor.AddTool(atc.id, atc.name, atc.arguments.String())
-			a.logger.Debug("stream accumulator: submitted tool call",
-				slog.Int("index", idx),
-				slog.String("tool", atc.name),
-			)
+		if atc.inString {
+			switch ch {
+			case '\\':
+				atc.escaped = true
+			case '"':
+				atc.inString = false
+			}
+			continue
+		}
+		switch ch {
+		case '"':
+			atc.inString = true
+		case '{', '[':
+			atc.depth++
+		case '}', ']':
+			atc.depth--
+			if atc.depth == 0 {
+				atc.complete = true
+				return
+			}
 		}
 	}
 }

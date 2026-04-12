@@ -133,12 +133,18 @@ func buildSystemPrompt(ad *types.AdContent, policies []types.Policy, plan types.
 	fmt.Fprintf(&b, "  Accessible: %v\n", ad.LandingPage.IsAccessible)
 	fmt.Fprintf(&b, "  Mobile Optimized: %v\n\n", ad.LandingPage.IsMobileOptimized)
 
-	// 4. Applicable policies (ID + severity + source + full rule_text).
-	b.WriteString("=== APPLICABLE POLICIES ===\n")
+	// 4. Applicable policies（摘要，详情通过 query_policy_kb 按需查询）。
+	b.WriteString("=== APPLICABLE POLICIES (summary) ===\n")
+	b.WriteString("Use query_policy_kb tool for detailed policy text when needed.\n\n")
 	for i, p := range policies {
-		fmt.Fprintf(&b, "%d. [%s] severity=%s region=%s category=%s\n", i+1, p.ID, p.Severity, p.Region, p.Category)
-		fmt.Fprintf(&b, "   Source: %s\n", p.Source)
-		fmt.Fprintf(&b, "   Rule: %s\n\n", p.RuleText)
+		summary := p.RuleText
+		if idx := strings.Index(summary, ". "); idx >= 0 && idx < 80 {
+			summary = summary[:idx+1]
+		} else if len(summary) > 80 {
+			summary = summary[:80] + "..."
+		}
+		fmt.Fprintf(&b, "%d. [%s] severity=%s region=%s category=%s — %s\n",
+			i+1, p.ID, p.Severity, p.Region, p.Category, summary)
 	}
 
 	// 5. Review instructions.
@@ -148,7 +154,8 @@ func buildSystemPrompt(ad *types.AdContent, policies []types.Policy, plan types.
 	b.WriteString("3. Use check_region_compliance to verify region-specific regulatory requirements.\n")
 	b.WriteString("4. Use check_landing_page to verify landing page compliance and ad-content consistency.\n")
 	b.WriteString("5. Use lookup_history to check advertiser reputation and similar past cases for consistency.\n")
-	b.WriteString("6. After analysis, output your final review decision as JSON.\n\n")
+	b.WriteString("6. Use query_policy_kb to look up detailed policy text when you need full rule specifications.\n")
+	b.WriteString("7. After analysis, output your final review decision as JSON.\n\n")
 
 	// 6. Output format.
 	b.WriteString("=== OUTPUT FORMAT ===\n")

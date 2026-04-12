@@ -24,9 +24,10 @@ import (
 type TrainingSource string
 
 const (
-	SourceReview              TrainingSource = "review"
+	SourceReview               TrainingSource = "review"
 	SourceVerificationOverride TrainingSource = "verification_override"
-	SourceAppealOverturn      TrainingSource = "appeal_overturn"
+	SourceAppealOverturn       TrainingSource = "appeal_overturn"
+	SourceActiveLearning       TrainingSource = "active_learning"
 )
 
 // TrainingRecord captures one labeled sample for model training.
@@ -40,21 +41,24 @@ type TrainingRecord struct {
 	Region           string              `json:"region"`
 	Category         string              `json:"category"`
 	Confidence       float64             `json:"confidence"`
+	Priority         string              `json:"priority,omitempty"` // "high" 或 "normal"；空值等同 "normal"
 	CreatedAt        time.Time           `json:"created_at"`
 }
 
-// TrainingFilter supports composite queries on the training pool.
+// TrainingFilter 支持对训练池的组合查询。
 type TrainingFilter struct {
 	Source   *TrainingSource
 	Region   *string
 	Category *string
+	Priority *string
 }
 
-// TrainingStats provides aggregate statistics.
+// TrainingStats 提供训练池聚合统计。
 type TrainingStats struct {
-	Total    int                    `json:"total"`
-	BySource map[TrainingSource]int `json:"by_source"`
-	ByRegion map[string]int         `json:"by_region"`
+	Total             int                    `json:"total"`
+	BySource          map[TrainingSource]int `json:"by_source"`
+	ByRegion          map[string]int         `json:"by_region"`
+	HighPriorityCount int                    `json:"high_priority_count"`
 }
 
 // TrainingPool manages training data records in memory with optional JSONL persistence.
@@ -158,6 +162,9 @@ func (tp *TrainingPool) Query(filter TrainingFilter) []*TrainingRecord {
 		if filter.Category != nil && r.Category != *filter.Category {
 			continue
 		}
+		if filter.Priority != nil && r.Priority != *filter.Priority {
+			continue
+		}
 		results = append(results, r)
 	}
 	return results
@@ -185,6 +192,9 @@ func (tp *TrainingPool) Stats() TrainingStats {
 		stats.Total++
 		stats.BySource[r.Source]++
 		stats.ByRegion[r.Region]++
+		if r.Priority == "high" {
+			stats.HighPriorityCount++
+		}
 	}
 	return stats
 }
@@ -196,23 +206,39 @@ func (tp *TrainingPool) Len() int {
 	return len(tp.records)
 }
 
-// PostReview implements agent.PostReviewHook.
-// Samples high-confidence reviews (confidence >= 0.9) as training data.
-// MANUAL_REVIEW results are excluded (ambiguous labels are not useful for training).
+// PostReview 实现 agent.PostReviewHook。
+// 两类样本进入训练池：
+//   - 高置信度（≥0.9）：模型已掌握的样本，优先级 normal
+//   - 边界案例（0.4-0.6）：模型最不确定的区间，Active Learning 优先标注，优先级 high
+//
+// MANUAL_REVIEW 结果不采集（标签歧义，不适合训练）。
 func (tp *TrainingPool) PostReview(result types.ReviewResult, _, region, category, _ string) {
-	if result.Confidence < 0.9 {
-		return
-	}
 	if result.Decision == types.DecisionManualReview {
 		return
 	}
+
+	var source TrainingSource
+	var priority string
+
+	switch {
+	case result.Confidence >= 0.9:
+		source = SourceReview
+		priority = "normal"
+	case result.Confidence >= 0.4 && result.Confidence <= 0.6:
+		source = SourceActiveLearning
+		priority = "high"
+	default:
+		return
+	}
+
 	tp.Add(&TrainingRecord{
 		AdID:             result.AdID,
 		OriginalDecision: result.Decision,
 		FinalDecision:    result.Decision,
-		Source:           SourceReview,
+		Source:           source,
 		Region:           region,
 		Category:         category,
 		Confidence:       result.Confidence,
+		Priority:         priority,
 	})
 }

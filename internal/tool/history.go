@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/BillBeam/adguard-agent/internal/store"
 	"github.com/BillBeam/adguard-agent/internal/types"
 )
 
@@ -33,12 +34,13 @@ type HistoryRecord struct {
 
 type HistoryLookup struct {
 	BaseTool
-	mu      sync.RWMutex
-	records []HistoryRecord
-	logger  *slog.Logger
+	mu          sync.RWMutex
+	records     []HistoryRecord
+	reviewStore *store.ReviewStore // 非空时直接查询持久化存储，消除重启数据丢失
+	logger      *slog.Logger
 }
 
-// NewHistoryLookup creates a HistoryLookup tool with empty history.
+// NewHistoryLookup 创建历史查询工具，初始历史为空。
 func NewHistoryLookup(logger *slog.Logger) *HistoryLookup {
 	return &HistoryLookup{
 		BaseTool: ReviewToolBase(),
@@ -47,10 +49,18 @@ func NewHistoryLookup(logger *slog.Logger) *HistoryLookup {
 	}
 }
 
-// AddRecord appends a completed review result with ad context to the history.
-// Called by Executor.PostReview() after each review completes.
-// Thread-safe.
+// WithReviewStore 关联持久化存储。设置后 Execute 直接查询 ReviewStore，
+// 启动时自动包含 JSONL 恢复的历史记录，消除重启后历史断裂。
+func (h *HistoryLookup) WithReviewStore(rs *store.ReviewStore) *HistoryLookup {
+	h.reviewStore = rs
+	return h
+}
+
+// AddRecord 追加一条审核历史。当 ReviewStore 已关联时为空操作（Store 为唯一数据源）。
 func (h *HistoryLookup) AddRecord(result types.ReviewResult, advertiserID, region, category string) {
+	if h.reviewStore != nil {
+		return // ReviewStore 已持有此记录，不维护独立副本
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.records = append(h.records, HistoryRecord{
@@ -95,7 +105,7 @@ func (h *HistoryLookup) ValidateInput(args json.RawMessage) error {
 }
 
 // Execute — 感知+研判：查询历史判例和广告主信誉。
-func (h *HistoryLookup) Execute(_ context.Context, args json.RawMessage) (string, error) {
+func (h *HistoryLookup) Execute(ctx context.Context, args json.RawMessage) (string, error) {
 	var input struct {
 		AdvertiserID string `json:"advertiser_id"`
 		Category     string `json:"category"`
@@ -105,6 +115,11 @@ func (h *HistoryLookup) Execute(_ context.Context, args json.RawMessage) (string
 		input.AdvertiserID = unwrapJSONString(args)
 	} else if err := json.Unmarshal(args, &input); err != nil {
 		return "", fmt.Errorf("parsing input: %w", err)
+	}
+
+	// ReviewStore 已关联时，直接查询持久化存储（包含 JSONL 恢复的历史）。
+	if h.reviewStore != nil {
+		return h.executeFromStore(input.AdvertiserID, input.Category, input.Region)
 	}
 
 	h.mu.RLock()
@@ -154,6 +169,69 @@ func (h *HistoryLookup) Execute(_ context.Context, args json.RawMessage) (string
 		"consistency_advice":     advice,
 		"advertiser_reputation":  rep,
 		"total_history_records":  len(h.records),
+	})
+	return string(result), nil
+}
+
+// executeFromStore 基于 ReviewStore 的查询路径，启动即可用 JSONL 恢复的历史。
+func (h *HistoryLookup) executeFromStore(advertiserID, category, region string) (string, error) {
+	// 1. 广告主历史记录。
+	advRecords := h.reviewStore.QueryByAdvertiser(advertiserID)
+	var histRecords []HistoryRecord
+	for _, r := range advRecords {
+		histRecords = append(histRecords, HistoryRecord{
+			ReviewResult: r.ReviewResult,
+			AdvertiserID: r.AdvertiserID,
+			Region:       r.Region,
+			Category:     r.Category,
+		})
+	}
+
+	// 2. 相似案例：同品类+同地区。
+	var similarCases []similarCase
+	if category != "" && region != "" {
+		for _, r := range h.reviewStore.QueryByRegionCategory(region, category) {
+			similarCases = append(similarCases, similarCase{
+				AdID:              r.AdID,
+				Decision:          string(r.Decision),
+				Confidence:        r.Confidence,
+				ViolationsSummary: summarizeViolations(r.Violations),
+			})
+		}
+	} else {
+		// 仅按广告主匹配。
+		for _, r := range advRecords {
+			similarCases = append(similarCases, similarCase{
+				AdID:              r.AdID,
+				Decision:          string(r.Decision),
+				Confidence:        r.Confidence,
+				ViolationsSummary: summarizeViolations(r.Violations),
+			})
+		}
+	}
+	if len(similarCases) > 10 {
+		similarCases = similarCases[len(similarCases)-10:]
+	}
+
+	// 3. 广告主信誉。
+	rep := calculateReputation(advertiserID, histRecords)
+
+	// 4. 一致性建议。
+	advice := generateConsistencyAdvice(similarCases)
+
+	totalRecords := h.reviewStore.Stats().Total
+
+	h.logger.Debug("history lookup (store-backed)",
+		slog.String("advertiser_id", advertiserID),
+		slog.Int("similar_cases", len(similarCases)),
+		slog.Int("total_records", totalRecords),
+	)
+
+	result, _ := json.Marshal(map[string]any{
+		"similar_cases":         similarCases,
+		"consistency_advice":    advice,
+		"advertiser_reputation": rep,
+		"total_history_records": totalRecords,
 	})
 	return string(result), nil
 }

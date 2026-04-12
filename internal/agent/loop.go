@@ -551,7 +551,7 @@ func callAPIStreaming(
 	defer stream.Close()
 	emitEvent(events, EventStreamStarted, state, "")
 
-	executor := NewStreamingToolExecutor(ctx, config.ToolExecutor, nil, logger)
+	executor := NewStreamingToolExecutor(ctx, config.ToolExecutor, nil, config.PreToolHooks, config.PostToolHooks, logger)
 	accumulator := NewStreamAccumulator(executor, logger)
 
 	prevToolCount := 0

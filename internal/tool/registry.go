@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/BillBeam/adguard-agent/internal/llm"
+	"github.com/BillBeam/adguard-agent/internal/store"
 	"github.com/BillBeam/adguard-agent/internal/strategy"
 	"github.com/BillBeam/adguard-agent/internal/types"
 )
@@ -78,11 +79,12 @@ func (r *Registry) Sub(names ...string) *Registry {
 	return sub
 }
 
-// NewReviewRegistry creates a registry pre-loaded with all 5 review tools.
-// This is the primary factory function used by main.go.
+// NewReviewRegistry 创建预加载全部审核工具的注册表。
+// rs 为 nil 时 HistoryLookup 退化为纯内存模式（向后兼容）。
 func NewReviewRegistry(
 	client llm.LLMClient,
 	matrix *strategy.StrategyMatrix,
+	rs *store.ReviewStore,
 	logger *slog.Logger,
 ) *Registry {
 	reg := NewRegistry()
@@ -90,6 +92,11 @@ func NewReviewRegistry(
 	reg.Register(NewPolicyMatcher(matrix, logger))
 	reg.Register(NewRegionCompliance(matrix, logger))
 	reg.Register(NewLandingPageChecker(client, logger))
-	reg.Register(NewHistoryLookup(logger))
+	hl := NewHistoryLookup(logger)
+	if rs != nil {
+		hl.WithReviewStore(rs)
+	}
+	reg.Register(hl)
+	reg.Register(NewPolicyKBLookup(matrix, logger))
 	return reg
 }

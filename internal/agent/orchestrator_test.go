@@ -39,7 +39,7 @@ func TestOrchestrator_RunMultiAgent_Comprehensive(t *testing.T) {
 	mockLLM := &mockMultiLLM{}
 
 	// Create real registry with mock LLM.
-	reg := tool.NewReviewRegistry(mockLLM, matrix, logger)
+	reg := tool.NewReviewRegistry(mockLLM, matrix, nil, logger)
 
 	orch := NewOrchestrator(mockLLM, matrix, reg, logger)
 
@@ -112,10 +112,10 @@ func TestOrchestrator_SpecialistToolRestriction(t *testing.T) {
 	matrix := loadTestMatrix(t)
 	logger := testLogger()
 
-	reg := tool.NewReviewRegistry(&mockMultiLLM{}, matrix, logger)
+	reg := tool.NewReviewRegistry(&mockMultiLLM{}, matrix, nil, logger)
 
-	// Content agent should only have 2 tools.
-	contentReg := reg.Sub("analyze_content", "match_policies")
+	// Content agent should only have 2 tools (new assignment: analyze_content + check_landing_page).
+	contentReg := reg.Sub("analyze_content", "check_landing_page")
 	contentDefs := contentReg.ExportDefinitions()
 	if len(contentDefs) != 2 {
 		t.Errorf("content agent should have 2 tools, got %d", len(contentDefs))
@@ -138,7 +138,7 @@ func TestOrchestrator_FastPipelineSingleAgent(t *testing.T) {
 		makeStopResponse("PASSED", 0.90, nil),
 	}
 
-	reg := tool.NewReviewRegistry(client, matrix, logger)
+	reg := tool.NewReviewRegistry(client, matrix, nil, logger)
 	executor := tool.NewExecutor(reg, logger)
 	orch := NewOrchestrator(client, matrix, reg, logger)
 

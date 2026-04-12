@@ -137,6 +137,12 @@ func runWithMockLLM(matrix *strategy.StrategyMatrix, logger *slog.Logger, cfg *c
 	recheckScheduler := recheck.NewRecheckScheduler(logger, "")
 	recheckHook := recheck.NewRecheckHook(recheckScheduler, matrix.GetRiskLevel, 24*time.Hour)
 	auditHook := agent.NewAuditHook(logger)
+	cbHook := agent.NewCircuitBreakerHook(10, logger)
+	validationHook := agent.NewResultValidationHook(logger)
+	finalAuditHook := agent.NewFinalAuditHook(logger)
+	preHooks := []agent.PreToolHook{auditHook, cbHook}
+	postHooks := []agent.PostToolHook{auditHook, cbHook}
+	stopHooks := []agent.StopHook{validationHook, finalAuditHook}
 
 	// Setup version: v1.0 active.
 	versionMgr.Create("v1.0")
@@ -152,12 +158,13 @@ func runWithMockLLM(matrix *strategy.StrategyMatrix, logger *slog.Logger, cfg *c
 	for i := range samples {
 		ad := &samples[i].AdContent
 		client := mock.NewLLMClient()
-		reg := tool.NewReviewRegistry(client, matrix, logger)
+		reg := tool.NewReviewRegistry(client, matrix, reviewStore, logger)
 		executor := tool.NewExecutor(reg, logger)
 
 		hookChain := agent.NewHookChain(logger).Add(executor).Add(reviewStore).Add(trainingPool).Add(recheckHook)
 		orchestrator := agent.NewOrchestrator(client, matrix, reg, logger)
 		orchestrator.WithModelRouter(router)
+		orchestrator.WithHooks(preHooks, postHooks, stopHooks)
 		orchestrator.WithProgress(func(role, phase, detail string) {
 			if phase == "start" {
 				fmt.Printf("  ├─ %-14s %s\n", role+":", detail)
@@ -169,6 +176,7 @@ func runWithMockLLM(matrix *strategy.StrategyMatrix, logger *slog.Logger, cfg *c
 		engine := agent.NewReviewEngine(client, matrix, reg.ExportDefinitions(), executor, logger, hookChain)
 		engine.WithOrchestrator(orchestrator)
 		engine.WithModelRouter(router)
+		engine.WithHooks(preHooks, postHooks, stopHooks)
 		engine.WithPhase3(nil, nil, reviewStore, nil)
 		engine.WithPhase5(trainingPool, appealStore, reputationMgr, versionMgr)
 
@@ -267,8 +275,11 @@ func buildEngine(client llm.LLMClient, matrix *strategy.StrategyMatrix, logger *
 	versionMgr := strategy.NewVersionManager(logger)
 	verifier := store.NewVerifier(client, reviewStore, logger).WithTrainingPool(trainingPool)
 	auditHook := agent.NewAuditHook(logger)
+	cbHook := agent.NewCircuitBreakerHook(10, logger) // 高阈值，demo 不误触发
+	validationHook := agent.NewResultValidationHook(logger)
+	finalAuditHook := agent.NewFinalAuditHook(logger)
 
-	reg := tool.NewReviewRegistry(client, matrix, logger)
+	reg := tool.NewReviewRegistry(client, matrix, reviewStore, logger)
 	resultBudget := tool.NewResultBudget(filepath.Join(dataDir, "tool-results"), logger)
 	executor := tool.NewExecutor(reg, logger).WithBudget(resultBudget)
 
@@ -299,11 +310,19 @@ func buildEngine(client llm.LLMClient, matrix *strategy.StrategyMatrix, logger *
 	versionMgr.Deploy("v1.0", 0)
 	versionMgr.Promote("v1.0")
 
+	// 工具级 Hook：审计追踪 + 熔断保护。
+	preHooks := []agent.PreToolHook{auditHook, cbHook}
+	postHooks := []agent.PostToolHook{auditHook, cbHook}
+	stopHooks := []agent.StopHook{validationHook, finalAuditHook}
+
+	orchestrator.WithHooks(preHooks, postHooks, stopHooks)
+
 	engine := agent.NewReviewEngine(client, matrix, reg.ExportDefinitions(), executor, logger, hookChain)
 	engine.WithPhase3(ctxMgr, budget, reviewStore, verifier)
 	engine.WithOrchestrator(orchestrator)
 	engine.WithModelRouter(router)
 	engine.WithPhase5(trainingPool, appealStore, reputationMgr, versionMgr)
+	engine.WithHooks(preHooks, postHooks, stopHooks)
 
 	stores := &engineStores{
 		reviewStore: reviewStore, trainingPool: trainingPool,
@@ -390,6 +409,19 @@ func printFeatureShowcase(stores *engineStores, client llm.LLMClient) {
 	if stores.recheckScheduler != nil {
 		rs := stores.recheckScheduler.Stats()
 		fmt.Printf("  ✓ Scheduled Recheck     %d pending, %d completed\n", rs.Pending, rs.Completed)
+	}
+
+	// 8. Active Learning
+	if stores.trainingPool != nil {
+		ts := stores.trainingPool.Stats()
+		fmt.Printf("  ✓ Active Learning       %d training samples (%d high-priority boundary cases)\n",
+			ts.Total, ts.HighPriorityCount)
+	}
+
+	// 9. Tool Hooks (审计追踪 + 熔断保护)
+	if stores.auditHook != nil {
+		entries := stores.auditHook.Entries()
+		fmt.Printf("  ✓ Tool Hooks            %d audit entries (pre+post tool execution)\n", len(entries))
 	}
 
 	// Cost

@@ -47,24 +47,34 @@ type ConcurrencyChecker interface {
 	IsConcurrencySafe(toolName string) bool
 }
 
-// StreamingToolExecutor manages tool execution during LLM streaming.
+// StreamingToolExecutor 管理 LLM 流式响应中的工具执行。
 type StreamingToolExecutor struct {
 	mu               sync.Mutex
 	ctx              context.Context    // parent context for cancellation propagation
 	tools            []*trackedTool
 	executor         ToolExecutor
 	concurrencyCheck ConcurrencyChecker // nil = assume all concurrent-safe
+	preToolHooks     []PreToolHook      // 工具执行前检查（可阻止执行）
+	postToolHooks    []PostToolHook     // 工具执行后记录（仅信息性）
 	logger           *slog.Logger
 }
 
-// NewStreamingToolExecutor creates an executor for streaming tool dispatch.
-// The ctx parameter is propagated to all tool executions — when cancelled,
-// in-flight tools are interrupted instead of leaking goroutines.
-func NewStreamingToolExecutor(ctx context.Context, executor ToolExecutor, cc ConcurrencyChecker, logger *slog.Logger) *StreamingToolExecutor {
+// NewStreamingToolExecutor 创建流式工具调度器。
+// preHooks/postHooks 为 nil 时不执行 hook（向后兼容）。
+func NewStreamingToolExecutor(
+	ctx context.Context,
+	executor ToolExecutor,
+	cc ConcurrencyChecker,
+	preHooks []PreToolHook,
+	postHooks []PostToolHook,
+	logger *slog.Logger,
+) *StreamingToolExecutor {
 	return &StreamingToolExecutor{
 		ctx:              ctx,
 		executor:         executor,
 		concurrencyCheck: cc,
+		preToolHooks:     preHooks,
+		postToolHooks:    postHooks,
 		logger:           logger,
 	}
 }
@@ -141,9 +151,25 @@ func (s *StreamingToolExecutor) canExecuteLocked(isConcurrencySafe bool) bool {
 	return isConcurrencySafe && allExecutingSafe
 }
 
-// executeTool runs a single tool in a goroutine.
+// executeTool 在 goroutine 中执行单个工具，包含 PreToolHook/PostToolHook。
 func (s *StreamingToolExecutor) executeTool(t *trackedTool) {
 	defer close(t.done)
+
+	// PreToolHook：阻止不合规的工具调用（fail-closed）。
+	if len(s.preToolHooks) > 0 {
+		if err := runPreToolHooks(s.preToolHooks, t.name, []byte(t.arguments), s.logger); err != nil {
+			s.mu.Lock()
+			t.result = types.Message{
+				Role:       types.RoleTool,
+				Content:    types.NewTextContent(fmt.Sprintf(`{"error":"blocked by hook: %s"}`, err.Error())),
+				ToolCallID: t.id,
+			}
+			t.status = statusCompleted
+			s.processQueueLocked()
+			s.mu.Unlock()
+			return
+		}
+	}
 
 	// Build a ToolCall to pass to the standard executor.
 	tc := types.ToolCall{
@@ -171,7 +197,12 @@ func (s *StreamingToolExecutor) executeTool(t *trackedTool) {
 	}
 	t.status = statusCompleted
 
-	s.logger.Debug("streaming executor: tool completed",
+	// PostToolHook：记录工具执行结果（仅信息性，不阻塞）。
+	if len(s.postToolHooks) > 0 {
+		runPostToolHooks(s.postToolHooks, t.name, t.result.Content.String(), err, s.logger)
+	}
+
+	s.logger.Debug("streaming executor: 工具执行完成",
 		slog.String("tool", t.name),
 	)
 
