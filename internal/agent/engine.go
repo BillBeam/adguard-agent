@@ -127,7 +127,7 @@ func (e *ReviewEngine) WithPhase5(
 
 // WithModelRouter attaches model routing for per-pipeline/per-role model selection.
 // When set, each review uses the model determined by the router based on the
-// pipeline (fast/standard/comprehensive) and agent role (content/policy/region/adjudicator).
+// pipeline (fast/standard/comprehensive) and agent role (content/policy/region/coordinator).
 func (e *ReviewEngine) WithModelRouter(router *llm.ModelRouter) *ReviewEngine {
 	e.router = router
 	return e

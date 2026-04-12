@@ -29,11 +29,11 @@ func TestRouteModel_PipelineOnly(t *testing.T) {
 
 func TestRouteModel_PipelineWithRole(t *testing.T) {
 	r := defaultTestRouter()
-	// "comprehensive:adjudicator" should match the specific route.
-	got := r.RouteModel("comprehensive", "adjudicator")
+	// "comprehensive:coordinator" should match the specific route.
+	got := r.RouteModel("comprehensive", "coordinator")
 	want := "grok-4.20-0309-reasoning"
 	if got != want {
-		t.Errorf("RouteModel(comprehensive, adjudicator) = %q, want %q", got, want)
+		t.Errorf("RouteModel(comprehensive, coordinator) = %q, want %q", got, want)
 	}
 
 	// "comprehensive:content" should fall back to pipeline-only route.
@@ -105,7 +105,7 @@ func TestFormatRoutingTable(t *testing.T) {
 		t.Error("FormatRoutingTable returned empty string")
 	}
 	// Should contain key entries.
-	for _, want := range []string{"fast", "standard", "comprehensive", "adjudicator", "fallback chain"} {
+	for _, want := range []string{"fast", "standard", "comprehensive", "coordinator", "fallback chain"} {
 		if !contains(table, want) {
 			t.Errorf("routing table missing %q", want)
 		}

@@ -40,7 +40,7 @@ type Orchestrator struct {
 	router     *llm.ModelRouter  // nil = use client default
 	onProgress ProgressFunc      // nil = no progress reporting
 	logger     *slog.Logger
-	// Tool-level hooks: injected into every specialist and adjudicator LoopConfig.
+	// Tool-level hooks: injected into every specialist and coordinator LoopConfig.
 	preToolHooks  []PreToolHook
 	postToolHooks []PostToolHook
 	stopHooks     []StopHook
@@ -81,7 +81,7 @@ func (o *Orchestrator) WithMemory(mem *memory.AgentMemory) *Orchestrator {
 	return o
 }
 
-// WithHooks injects tool-level hooks into all specialist and adjudicator agents.
+// WithHooks injects tool-level hooks into all specialist and coordinator agents.
 func (o *Orchestrator) WithHooks(pre []PreToolHook, post []PostToolHook, stop []StopHook) *Orchestrator {
 	o.preToolHooks = pre
 	o.postToolHooks = post
@@ -181,7 +181,7 @@ func (o *Orchestrator) RunMultiAgent(ctx context.Context, ad *types.AdContent, p
 
 	// Model routing: coordinator uses the strongest reasoning model.
 	if o.router != nil {
-		config.Model = o.router.RouteModel(plan.Pipeline, "adjudicator") // reuse adjudicator tier
+		config.Model = o.router.RouteModel(plan.Pipeline, "coordinator")
 		if fb, ok := o.router.GetFallback(config.Model); ok {
 			config.FallbackModel = fb
 		}

@@ -24,7 +24,6 @@ const (
 	RoleContent     AgentRole = "content"
 	RolePolicy      AgentRole = "policy"
 	RoleRegion      AgentRole = "region"
-	RoleAdjudicator AgentRole = "adjudicator"
 	RoleAppeal      AgentRole = "appeal"  // Phase 5: appeal re-review
 	RoleSingle      AgentRole = "single"  // Phase 2 single-agent path (fast pipeline)
 )

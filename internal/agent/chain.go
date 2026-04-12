@@ -10,7 +10,7 @@ import (
 // Query Chain Tracking — data foundation of the Attribution (归因) stage.
 //
 //   - chainId: UUID identifying the entire review chain (stays constant)
-//   - depth: nesting level (parent=0, specialist agents=1, adjudicator=1)
+//   - depth: nesting level (parent=0, specialist agents=1, coordinator=1)
 //
 // Allows full reconstruction of "why was this ad rejected":
 //   Chain abc123
@@ -23,7 +23,7 @@ import (
 // QueryChain tracks the execution chain across parent/child agents.
 type QueryChain struct {
 	ChainID string `json:"chain_id"` // UUID, constant across all agents in one review
-	Depth   int    `json:"depth"`    // 0=orchestrator, 1=specialist/adjudicator
+	Depth   int    `json:"depth"`    // 0=orchestrator, 1=specialist/coordinator
 }
 
 // NewQueryChain creates a root-level chain for a new review.
@@ -46,7 +46,7 @@ func (qc *QueryChain) Child() *QueryChain {
 type ChainEntry struct {
 	ChainID   string        `json:"chain_id"`
 	Depth     int           `json:"depth"`
-	AgentRole string        `json:"agent_role"` // "content", "policy", "region", "adjudicator", "single"
+	AgentRole string        `json:"agent_role"` // "content", "policy", "region", "coordinator", "single"
 	Decision  string        `json:"decision"`
 	Confidence float64      `json:"confidence"`
 	ToolsCalled []string    `json:"tools_called"`

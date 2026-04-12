@@ -137,7 +137,14 @@ func RunMonitor(rs *store.ReviewStore, logger *slog.Logger) *MonitorReport {
 		}
 	}
 
-	if len(report.Anomalies) == 0 {
+	// Flag metrics that look concerning but have insufficient sample size.
+	if report.OverrideRate > 0.5 && stats.VerifiedCount < 2 {
+		report.Recommendations = append(report.Recommendations,
+			fmt.Sprintf("Override rate %.0f%% appears high but sample size is too small (%d verification) — monitor as more data arrives",
+				report.OverrideRate*100, stats.VerifiedCount))
+	}
+
+	if len(report.Anomalies) == 0 && len(report.Recommendations) == 0 {
 		report.Recommendations = append(report.Recommendations, "No anomalies detected — system operating normally")
 	}
 

@@ -42,8 +42,8 @@ func DefaultRoutingConfig() RoutingConfig {
 			// Note: grok-4.20-multi-agent-0309 uses a proprietary protocol incompatible
 			// with OpenAI /v1/chat/completions, so we use grok-4.20-0309-reasoning instead.
 			"comprehensive": "grok-4.20-0309-reasoning",
-			// Adjudicator always uses strongest reasoning regardless of pipeline.
-			"comprehensive:adjudicator": "grok-4.20-0309-reasoning",
+			// Coordinator always uses strongest reasoning regardless of pipeline.
+			"comprehensive:coordinator": "grok-4.20-0309-reasoning",
 			// Appeal re-review needs independent strong reasoning.
 			"appeal": "grok-4.20-0309-reasoning",
 		},
@@ -89,7 +89,7 @@ func NewModelRouter(cfg RoutingConfig, logger *slog.Logger) *ModelRouter {
 // RouteModel selects the model for a given pipeline and agent role.
 //
 // Lookup priority (2-level, more specific keys take precedence):
-//  1. Exact "pipeline:role" key (e.g., "comprehensive:adjudicator")
+//  1. Exact "pipeline:role" key (e.g., "comprehensive:coordinator")
 //  2. Pipeline-only key (e.g., "comprehensive")
 //  3. Default model
 func (r *ModelRouter) RouteModel(pipeline, role string) string {
@@ -124,7 +124,7 @@ func (r *ModelRouter) FormatRoutingTable() string {
 		{"fast", "fast"},
 		{"standard", "standard"},
 		{"comprehensive", "comprehensive"},
-		{"comprehensive:adjudicator", "adjudicator"},
+		{"comprehensive:coordinator", "coordinator"},
 		{"appeal", "appeal"},
 	} {
 		model := r.RouteModel(entry.key, "")

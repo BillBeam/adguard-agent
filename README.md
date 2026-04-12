@@ -70,26 +70,26 @@ data/
   |-- content:       analyzing...
   |-- policy:        analyzing...
   |-- region:        analyzing...
-  |-- content:       REJECTED        conf=1.00  (20.9s)
-  |-- region:        REJECTED        conf=1.00  (21.9s)
-  |-- policy:        REJECTED        conf=1.00  (24.1s)
-  |-- coordinator:   REJECTED        conf=1.00  (35.6s)
-  Verification: confirmed
-  -> REJECTED  conf=1.00  35.6s  (expected: REJECTED)
+  |-- content:       REJECTED        conf=0.95  (15.9s)
+  |-- region:        REJECTED        conf=1.00  (19.1s)
+  |-- policy:        REJECTED        conf=0.95  (20.8s)
+  |-- coordinator:   REJECTED        conf=0.97  (33.9s)
+  Verification: override
+  -> MANUAL_REVIEW  conf=0.97  33.9s  (expected: REJECTED)
 
 === Monitor Report ===
-  Reviews: 3 | Rejection rate: 33% | Avg confidence: 0.88 | Override rate: 0%
-  Anomalies:
-    [low] policy_hotspot -- Top violated policy: POL_001 (3 hits)
+  Reviews: 3 | Rejection rate: 33% | Avg confidence: 0.93 | Override rate: 100%
+  Recommendations:
+    - Override rate 100% appears high but sample size is too small (1 verification)
 
 === Feature Showcase ===
   Graceful Shutdown, JSONL Persistence, Model Routing, Tool Result Budget,
   Streaming Executor, Strategy A/B, Scheduled Recheck, Active Learning,
-  Tool Hooks, Agent Memory, System Monitor
+  Tool Hooks (156 audit entries), Agent Memory (16 entries), System Monitor
 ```
 
 ## Tech Stack
 
 - Go 1.22+, zero external dependencies (stdlib only)
 - OpenAI-compatible LLM API (tested with xAI Grok)
-- JSONL append-only persistence (crash-safe, no database required)
+- JSONL append-only persistence (crash-safe, WAL pattern — duplicate entries per ad ID are normal, latest wins on recovery)

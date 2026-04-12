@@ -205,7 +205,7 @@ func (m *StrategyMatrix) GetReviewPlan(region, category string) types.ReviewPlan
 	case risk == types.RiskCritical:
 		return types.ReviewPlan{
 			Pipeline:            "comprehensive",
-			RequiredAgents:      []string{"content", "policy", "region", "adjudicator"},
+			RequiredAgents:      []string{"content", "policy", "region", "coordinator"},
 			MaxTurns:            10,
 			ConfidenceThreshold: 0.85,
 			RequireVerification: true,
@@ -214,7 +214,7 @@ func (m *StrategyMatrix) GetReviewPlan(region, category string) types.ReviewPlan
 	case strictness == "strict":
 		return types.ReviewPlan{
 			Pipeline:            "comprehensive",
-			RequiredAgents:      []string{"content", "policy", "region", "adjudicator"},
+			RequiredAgents:      []string{"content", "policy", "region", "coordinator"},
 			MaxTurns:            10,
 			ConfidenceThreshold: 0.85,
 			RequireVerification: true,
@@ -223,7 +223,7 @@ func (m *StrategyMatrix) GetReviewPlan(region, category string) types.ReviewPlan
 	case risk == types.RiskHigh:
 		return types.ReviewPlan{
 			Pipeline:            "standard",
-			RequiredAgents:      []string{"content", "policy", "region", "adjudicator"},
+			RequiredAgents:      []string{"content", "policy", "region", "coordinator"},
 			MaxTurns:            6,
 			ConfidenceThreshold: 0.75,
 			RequireVerification: true,
@@ -241,7 +241,7 @@ func (m *StrategyMatrix) GetReviewPlan(region, category string) types.ReviewPlan
 	default: // RiskMedium
 		return types.ReviewPlan{
 			Pipeline:            "standard",
-			RequiredAgents:      []string{"content", "policy", "adjudicator"},
+			RequiredAgents:      []string{"content", "policy", "coordinator"},
 			MaxTurns:            6,
 			ConfidenceThreshold: 0.70,
 			RequireVerification: false,
