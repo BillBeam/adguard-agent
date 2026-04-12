@@ -1,0 +1,2 @@
+{"record_id":"tr_ad_001_review","ad_id":"ad_001","original_decision":"REJECTED","final_decision":"REJECTED","source":"review","region":"US","category":"healthcare","confidence":1,"priority":"normal","created_at":"2026-04-12T15:41:43.489876+08:00"}
+{"record_id":"tr_ad_002_review","ad_id":"ad_002","original_decision":"PASSED","final_decision":"PASSED","source":"review","region":"US","category":"finance","confidence":0.98,"priority":"normal","created_at":"2026-04-12T15:42:14.326836+08:00"}
