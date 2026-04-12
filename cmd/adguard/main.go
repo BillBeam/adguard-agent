@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-
+	"strings"
 	"sync"
 
 	"time"
@@ -17,6 +17,7 @@ import (
 	"github.com/BillBeam/adguard-agent/internal/compact"
 	"github.com/BillBeam/adguard-agent/internal/config"
 	"github.com/BillBeam/adguard-agent/internal/llm"
+	"github.com/BillBeam/adguard-agent/internal/memory"
 	"github.com/BillBeam/adguard-agent/internal/recheck"
 	"github.com/BillBeam/adguard-agent/internal/shutdown"
 	"github.com/BillBeam/adguard-agent/internal/store"
@@ -140,9 +141,11 @@ func runWithMockLLM(matrix *strategy.StrategyMatrix, logger *slog.Logger, cfg *c
 	cbHook := agent.NewCircuitBreakerHook(10, logger)
 	validationHook := agent.NewResultValidationHook(logger)
 	finalAuditHook := agent.NewFinalAuditHook(logger)
+	agentMemory := memory.NewAgentMemory("", 200, logger) // in-memory only for mock mode
+	memoryHook := agent.NewMemoryExtractionHook(agentMemory, logger)
 	preHooks := []agent.PreToolHook{auditHook, cbHook}
 	postHooks := []agent.PostToolHook{auditHook, cbHook}
-	stopHooks := []agent.StopHook{validationHook, finalAuditHook}
+	stopHooks := []agent.StopHook{validationHook, finalAuditHook, memoryHook}
 
 	// Setup version: v1.0 active.
 	versionMgr.Create("v1.0")
@@ -165,6 +168,7 @@ func runWithMockLLM(matrix *strategy.StrategyMatrix, logger *slog.Logger, cfg *c
 		orchestrator := agent.NewOrchestrator(client, matrix, reg, logger)
 		orchestrator.WithModelRouter(router)
 		orchestrator.WithHooks(preHooks, postHooks, stopHooks)
+		orchestrator.WithMemory(agentMemory)
 		orchestrator.WithProgress(func(role, phase, detail string) {
 			if phase == "start" {
 				fmt.Printf("  ├─ %-14s %s\n", role+":", detail)
@@ -177,6 +181,7 @@ func runWithMockLLM(matrix *strategy.StrategyMatrix, logger *slog.Logger, cfg *c
 		engine.WithOrchestrator(orchestrator)
 		engine.WithModelRouter(router)
 		engine.WithHooks(preHooks, postHooks, stopHooks)
+		engine.WithMemory(agentMemory)
 		engine.WithPhase3(nil, nil, reviewStore, nil)
 		engine.WithPhase5(trainingPool, appealStore, reputationMgr, versionMgr)
 
@@ -201,7 +206,7 @@ func runWithMockLLM(matrix *strategy.StrategyMatrix, logger *slog.Logger, cfg *c
 
 		mockStores := &engineStores{
 			reviewStore: reviewStore, recheckScheduler: recheckScheduler,
-			versionMgr: versionMgr,
+			versionMgr: versionMgr, agentMemory: agentMemory,
 		}
 		printReviewResult(ad, result, samples[i].ExpectedResult, mockStores)
 	}
@@ -243,6 +248,7 @@ func runWithMockLLM(matrix *strategy.StrategyMatrix, logger *slog.Logger, cfg *c
 		reviewStore: reviewStore, versionMgr: versionMgr,
 		recheckScheduler: recheckScheduler, auditHook: auditHook,
 		trainingPool: trainingPool, appealStore: appealStore,
+		agentMemory: agentMemory,
 	}
 	printFeatureShowcase(mockStores, nil)
 }
@@ -258,6 +264,7 @@ type engineStores struct {
 	recheckScheduler *recheck.RecheckScheduler
 	budget           *compact.TokenBudget
 	auditHook     *agent.AuditHook
+	agentMemory   *memory.AgentMemory
 	router        *llm.ModelRouter
 }
 
@@ -290,6 +297,10 @@ func buildEngine(client llm.LLMClient, matrix *strategy.StrategyMatrix, logger *
 
 	hookChain := agent.NewHookChain(logger).Add(executor).Add(reviewStore).Add(trainingPool).Add(recheckHook)
 
+	// Agent memory: cross-review learning.
+	agentMemory := memory.NewAgentMemory(dataDir, 200, logger)
+	shutdown.RegisterCleanup(func() { agentMemory.Flush() })
+
 	// Model routing: per-pipeline and per-role model selection.
 	router := llm.NewModelRouter(llm.DefaultRoutingConfig(), logger)
 	orchestrator := agent.NewOrchestrator(client, matrix, reg, logger)
@@ -311,11 +322,13 @@ func buildEngine(client llm.LLMClient, matrix *strategy.StrategyMatrix, logger *
 	versionMgr.Promote("v1.0")
 
 	// Tool-level hooks: audit trail + circuit-breaker protection.
+	memoryHook := agent.NewMemoryExtractionHook(agentMemory, logger)
 	preHooks := []agent.PreToolHook{auditHook, cbHook}
 	postHooks := []agent.PostToolHook{auditHook, cbHook}
-	stopHooks := []agent.StopHook{validationHook, finalAuditHook}
+	stopHooks := []agent.StopHook{validationHook, finalAuditHook, memoryHook}
 
 	orchestrator.WithHooks(preHooks, postHooks, stopHooks)
+	orchestrator.WithMemory(agentMemory)
 
 	engine := agent.NewReviewEngine(client, matrix, reg.ExportDefinitions(), executor, logger, hookChain)
 	engine.WithPhase3(ctxMgr, budget, reviewStore, verifier)
@@ -323,13 +336,14 @@ func buildEngine(client llm.LLMClient, matrix *strategy.StrategyMatrix, logger *
 	engine.WithModelRouter(router)
 	engine.WithPhase5(trainingPool, appealStore, reputationMgr, versionMgr)
 	engine.WithHooks(preHooks, postHooks, stopHooks)
+	engine.WithMemory(agentMemory)
 
 	stores := &engineStores{
 		reviewStore: reviewStore, trainingPool: trainingPool,
 		appealStore: appealStore, reputationMgr: reputationMgr,
 		versionMgr: versionMgr, recheckScheduler: recheckScheduler,
 		budget: budget, auditHook: auditHook,
-		router: router,
+		agentMemory: agentMemory, router: router,
 	}
 	return engine, stores
 }
@@ -422,6 +436,21 @@ func printFeatureShowcase(stores *engineStores, client llm.LLMClient) {
 	if stores.auditHook != nil {
 		entries := stores.auditHook.Entries()
 		fmt.Printf("  ✓ Tool Hooks            %d audit entries (pre+post tool execution)\n", len(entries))
+	}
+
+	// 10. Agent Memory
+	if stores.agentMemory != nil {
+		total := stores.agentMemory.TotalCount()
+		stats := stores.agentMemory.Stats()
+		fmt.Printf("  ✓ Agent Memory          %d entries", total)
+		if total > 0 {
+			parts := make([]string, 0)
+			for role, count := range stats {
+				parts = append(parts, fmt.Sprintf("%s=%d", role, count))
+			}
+			fmt.Printf(" (%s)", strings.Join(parts, ", "))
+		}
+		fmt.Println()
 	}
 
 	// Cost

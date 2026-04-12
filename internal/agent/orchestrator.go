@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/BillBeam/adguard-agent/internal/llm"
+	"github.com/BillBeam/adguard-agent/internal/memory"
 	"github.com/BillBeam/adguard-agent/internal/strategy"
 	"github.com/BillBeam/adguard-agent/internal/tool"
 	"github.com/BillBeam/adguard-agent/internal/types"
@@ -43,6 +44,8 @@ type Orchestrator struct {
 	preToolHooks  []PreToolHook
 	postToolHooks []PostToolHook
 	stopHooks     []StopHook
+	// Agent memory: cross-review learning (nil = disabled).
+	agentMemory *memory.AgentMemory
 }
 
 // NewOrchestrator creates a Multi-Agent orchestrator.
@@ -69,6 +72,12 @@ func (o *Orchestrator) WithProgress(fn ProgressFunc) *Orchestrator {
 // WithModelRouter attaches model routing for per-agent model selection.
 func (o *Orchestrator) WithModelRouter(router *llm.ModelRouter) *Orchestrator {
 	o.router = router
+	return o
+}
+
+// WithMemory attaches agent memory for cross-review learning.
+func (o *Orchestrator) WithMemory(mem *memory.AgentMemory) *Orchestrator {
+	o.agentMemory = mem
 	return o
 }
 
@@ -209,7 +218,7 @@ func (o *Orchestrator) runSingleAgent(
 		Pipeline:            plan.Pipeline,
 		Tools:               subRegistry.ExportDefinitions(),
 		ToolExecutor:        subExecutor,
-		SystemPrompt:        BuildAgentSystemPrompt(spec.Role, ad, policies, plan),
+		SystemPrompt:        o.buildSpecialistPrompt(spec.Role, ad, policies, plan),
 		DefaultMaxTokens:    DefaultMaxOutputTokens,
 		EscalatedMaxTokens:  EscalatedMaxOutputTokens,
 		MaxRecoveryAttempts: MaxRecoveryAttempts,
@@ -232,6 +241,7 @@ func (o *Orchestrator) runSingleAgent(
 
 	// Build isolated state — each agent starts with fresh messages.
 	state := NewState(ad)
+	state.AgentRole = string(spec.Role)
 	state.Messages = buildInitialMessages(config.SystemPrompt)
 
 	o.logger.Debug("specialist agent started",
@@ -394,6 +404,16 @@ func (o *Orchestrator) buildFinalResult(
 		ReviewDuration: time.Since(startTime),
 		Timestamp:      time.Now(),
 	}
+}
+
+// buildSpecialistPrompt builds a specialist agent's system prompt with optional memory injection.
+func (o *Orchestrator) buildSpecialistPrompt(role AgentRole, ad *types.AdContent, policies []types.Policy, plan types.ReviewPlan) string {
+	var memorySection string
+	if o.agentMemory != nil {
+		entries := o.agentMemory.LoadRelevant(string(role), ad.Region, ad.Category)
+		memorySection = o.agentMemory.FormatForPrompt(entries)
+	}
+	return BuildAgentSystemPrompt(role, ad, policies, plan, memorySection)
 }
 
 // --- Helper functions ---

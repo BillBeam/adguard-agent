@@ -10,7 +10,7 @@ import (
 	"github.com/BillBeam/adguard-agent/internal/types"
 )
 
-// Appeal workflow — "治理"环节的核心：广告主权利救济。
+// Appeal workflow — core of the Governance (治理) stage: advertiser rights remediation.
 //
 // Appeal vs Verification:
 //   - Verification: system-triggered quality check (automatic)

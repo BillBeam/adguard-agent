@@ -65,7 +65,7 @@ type CompactState struct {
 }
 
 // microCompactPlaceholder replaces cleared tool result content.
-const microCompactPlaceholder = "[旧工具结果已清除]"
+const microCompactPlaceholder = "[old tool results cleared]"
 
 // ContextManager handles conversation context lifecycle.
 // Implements a three-layer cascading compression strategy.

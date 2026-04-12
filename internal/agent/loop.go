@@ -233,6 +233,10 @@ func handleStop(state *State, config *LoopConfig, msg types.Message, events chan
 		result = fallbackManualReview(state, err)
 	}
 
+	// Populate PartialResult with parsed violations so StopHooks (e.g. MemoryExtractionHook)
+	// can access them before the loop returns.
+	state.PartialResult.Violations = result.Violations
+
 	state.Transition(StateDecided, TransitionCompleted,
 		fmt.Sprintf("decision=%s confidence=%.2f", result.Decision, result.Confidence))
 	emitEvent(events, EventTurnCompleted, state, string(result.Decision))

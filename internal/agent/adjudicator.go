@@ -2,7 +2,7 @@ package agent
 
 import "github.com/BillBeam/adguard-agent/internal/types"
 
-// Adjudication logic — 误伤控制 L3: Multi-Agent 交叉验证。
+// Adjudication logic — false-positive control (误伤控制) L3: Multi-Agent cross-validation.
 //
 // Business alignment: 4-layer false-positive control system:
 //   L1: Memory consistency (HistoryLookup, Phase 2)

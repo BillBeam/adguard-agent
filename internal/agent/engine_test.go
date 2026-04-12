@@ -124,7 +124,7 @@ func TestBuildSystemPrompt(t *testing.T) {
 		AllowAutoReject: true, RequireVerification: false,
 	}
 
-	prompt := buildSystemPrompt(ad, policies, plan)
+	prompt := buildSystemPrompt(ad, policies, plan, "")
 
 	// Verify prompt contains key sections.
 	checks := []string{

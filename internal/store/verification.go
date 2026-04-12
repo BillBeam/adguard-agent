@@ -24,8 +24,9 @@ import (
 
 // VerificationResult captures the LLM-as-Judge verdict.
 type VerificationResult struct {
-	Agree     bool   `json:"agree"`
-	Reasoning string `json:"reasoning"`
+	Counterarguments []string `json:"counterarguments,omitempty"` // forced reasons the ad might be compliant
+	Agree            bool     `json:"agree"`
+	Reasoning        string   `json:"reasoning"`
 }
 
 // Verifier performs independent quality re-checks on REJECTED reviews.
@@ -83,7 +84,7 @@ func (v *Verifier) verifyRecord(ctx context.Context, ad *types.AdContent, record
 	maxTokens := 2048
 	resp, err := v.client.ChatCompletion(ctx, types.ChatCompletionRequest{
 		Messages: []types.Message{
-			{Role: types.RoleSystem, Content: types.NewTextContent("You are an independent ad review quality auditor.")},
+			{Role: types.RoleSystem, Content: types.NewTextContent("You are an adversarial ad review quality auditor. Your primary goal is to identify false positives — ads that were incorrectly rejected.")},
 			{Role: types.RoleUser, Content: types.NewTextContent(prompt)},
 		},
 		MaxTokens: &maxTokens,
@@ -153,16 +154,23 @@ func (v *Verifier) applyResult(record *ReviewRecord, vr *VerificationResult) {
 	}
 }
 
-// buildVerificationPrompt constructs the prompt for LLM-as-Judge.
+// buildVerificationPrompt constructs an adversarial verification prompt.
 //
-// CRITICAL: Does NOT include reasoning or agent_trace — the verifier must
-// form an independent judgment based only on the ad content and reported violations.
+// Anti-confirmation-bias design:
+//   - Forces the verifier to generate counterarguments BEFORE judging
+//   - Pre-debunks common rationalization patterns that lead to rubber-stamping
+//   - Requires specific evidence for each violation (not vague interpretations)
+//
+// CRITICAL: Does NOT include reasoning or agent_trace — independence preserved.
 func buildVerificationPrompt(ad *types.AdContent, record *ReviewRecord) string {
 	var b strings.Builder
 
-	b.WriteString("Your task is to verify whether a REJECTED ad review decision is correct.\n\n")
+	// 1. Adversarial framing.
+	b.WriteString("You are an adversarial reviewer. Your job is to find reasons why this ")
+	b.WriteString("REJECTED decision might be WRONG. You are the advertiser's last line of defense ")
+	b.WriteString("against false positives.\n\n")
 
-	// Ad content — all fields for independent analysis.
+	// 2. Ad content — all fields for independent analysis.
 	b.WriteString("=== AD CONTENT ===\n")
 	fmt.Fprintf(&b, "Ad ID: %s\n", ad.ID)
 	fmt.Fprintf(&b, "Type: %s\n", ad.Type)
@@ -184,7 +192,7 @@ func buildVerificationPrompt(ad *types.AdContent, record *ReviewRecord) string {
 	fmt.Fprintf(&b, "Accessible: %v\n", ad.LandingPage.IsAccessible)
 	fmt.Fprintf(&b, "Mobile Optimized: %v\n\n", ad.LandingPage.IsMobileOptimized)
 
-	// Review decision and violations — NO reasoning, NO agent_trace.
+	// 3. Review decision and violations — NO reasoning, NO agent_trace.
 	b.WriteString("=== REVIEW DECISION ===\n")
 	fmt.Fprintf(&b, "Decision: %s\n", record.Decision)
 	fmt.Fprintf(&b, "Confidence: %.2f\n", record.Confidence)
@@ -202,14 +210,36 @@ func buildVerificationPrompt(ad *types.AdContent, record *ReviewRecord) string {
 		b.WriteString("\nNo specific violations reported.\n")
 	}
 
-	// Task instruction.
-	b.WriteString("\n=== TASK ===\n")
-	b.WriteString("Based ONLY on the ad content and reported violations above, determine whether ")
-	b.WriteString("the REJECTED decision is justified.\n\n")
-	b.WriteString("- If the ad genuinely violates the cited policies, output {\"agree\": true, \"reasoning\": \"...\"}\n")
-	b.WriteString("- If the violations are unclear, insufficient, or the ad seems compliant, ")
-	b.WriteString("output {\"agree\": false, \"reasoning\": \"...\"}\n\n")
-	b.WriteString("Output ONLY a JSON object. Do not include any other text.")
+	// 4. Forced counterarguments.
+	b.WriteString("\n=== REQUIRED ANALYSIS ===\n")
+	b.WriteString("Before making your judgment, you MUST list at least 3 reasons why this ad ")
+	b.WriteString("might actually be COMPLIANT and the REJECTED decision might be WRONG.\n\n")
+
+	// 5. Pre-debunked rationalizations.
+	b.WriteString("=== INVALID RATIONALIZATIONS ===\n")
+	b.WriteString("The following arguments are NOT valid reasons to uphold a rejection:\n")
+	b.WriteString("- \"The policy is broadly worded\" — Broad interpretation causes false positives. ")
+	b.WriteString("The ad must specifically violate the policy, not merely touch the policy's domain.\n")
+	b.WriteString("- \"Better safe than sorry\" — False positives mean revenue loss and advertiser churn. ")
+	b.WriteString("Safety requires accuracy, not over-rejection.\n")
+	b.WriteString("- \"The advertiser has a history of violations\" — Each ad is judged independently ")
+	b.WriteString("on its own content. Past behavior is not evidence of current violation.\n")
+	b.WriteString("- \"The severity is critical\" — Severity does not make a wrong decision right. ")
+	b.WriteString("A critical-severity policy that is not actually violated is still not violated.\n\n")
+
+	// 6. Evidence standard.
+	b.WriteString("=== EVIDENCE STANDARD ===\n")
+	b.WriteString("Each violation must cite SPECIFIC TEXT from the ad that violates the policy. ")
+	b.WriteString("If a violation cannot point to specific ad text as evidence, it is insufficient.\n\n")
+
+	// 7. Output format with counterarguments.
+	b.WriteString("=== OUTPUT ===\n")
+	b.WriteString("Output ONLY a JSON object:\n")
+	b.WriteString(`{"counterarguments":["reason1","reason2","reason3"],"agree":true/false,"reasoning":"..."}`)
+	b.WriteString("\n\n")
+	b.WriteString("- counterarguments: at least 3 reasons the ad might be compliant (REQUIRED)\n")
+	b.WriteString("- agree: true ONLY if violations are valid despite your counterarguments\n")
+	b.WriteString("- agree: false if counterarguments reveal the rejection is unjustified\n")
 
 	return b.String()
 }

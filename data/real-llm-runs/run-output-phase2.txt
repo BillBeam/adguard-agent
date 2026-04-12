@@ -1,0 +1,63 @@
+
+╔══════════════════════════════════════════════════════╗
+║  AdGuard Agent — Ad Content Safety Review System     ║
+║  Multi-Agent  |  6 tools  |  Agent Hooks             ║
+╚══════════════════════════════════════════════════════╝
+=== Model Routing ===
+  fast                   → grok-4-1-fast-non-reasoning
+  standard               → grok-4-1-fast-reasoning
+  comprehensive          → grok-4.20-0309-reasoning
+  adjudicator            → grok-4.20-0309-reasoning
+  appeal                 → grok-4.20-0309-reasoning
+  fallback chain: grok-4.20-0309-reasoning → grok-4-1-fast-reasoning → gpt-4o
+
+=== Review: 3 ads ===
+
+--- ad_001 (US/healthcare) [multi-agent] ---
+  ├─ region:        analyzing...
+  ├─ content:       analyzing...
+  ├─ policy:        analyzing...
+  ├─ content:       REJECTED        conf=1.00  (14.211s)
+  ├─ region:        REJECTED        conf=1.00  (15.163s)
+  ├─ policy:        REJECTED        conf=1.00  (17.163s)
+  ├─ adjudicator:   synthesizing...
+  ├─ adjudicator:   MANUAL_REVIEW   conf=1.00  (18.609s)
+  → MANUAL_REVIEW  conf=1.00  35.773s  (expected: REJECTED)
+
+--- ad_002 (US/finance) [multi-agent] ---
+  ├─ region:        analyzing...
+  ├─ content:       analyzing...
+  ├─ policy:        analyzing...
+  ├─ region:        PASSED          conf=1.00  (10.532s)
+  ├─ content:       PASSED          conf=0.95  (10.782s)
+  ├─ policy:        PASSED          conf=0.95  (17.754s)
+  ├─ adjudicator:   synthesizing...
+  ├─ adjudicator:   PASSED          conf=0.97  (3.405s)
+  Recheck: 24h scheduled (high-risk PASSED)
+  → PASSED  conf=0.97  21.159s  (expected: PASSED)
+
+--- ad_003 (EU/healthcare) [multi-agent] ---
+  ├─ region:        analyzing...
+  ├─ content:       analyzing...
+  ├─ policy:        analyzing...
+  ├─ region:        PASSED          conf=0.82  (16.942s)
+  ├─ policy:        PASSED          conf=0.82  (20.178s)
+  ├─ content:       MANUAL_REVIEW   conf=0.65  (21.835s)
+  ├─ adjudicator:   synthesizing...
+  ├─ adjudicator:   MANUAL_REVIEW   conf=0.72  (8.136s)
+  Recheck: 24h scheduled (high-risk PASSED)
+  → PASSED  conf=0.61  29.971s  (expected: PASSED)
+
+  Version: v1.0 active, v2.0 canary (10%)
+
+=== Feature Showcase ===
+  ✓ Graceful Shutdown     SIGINT/SIGTERM → wait in-flight → flush JSONL → 5s failsafe
+  ✓ JSONL Persistence     3 reviews persisted (crash-safe, append-only)
+  ✓ Model Routing         per-pipeline×role routing + 529 cross-provider fallback
+  ✓ Tool Result Budget    2-layer: per-tool 32KB + per-round 200KB, disk fallback
+  ✓ Streaming Executor    tools dispatch during LLM stream (channel+goroutine)
+  ✓ Strategy A/B          v1.0 vs v2.0 → CONTINUE
+  ✓ Scheduled Recheck     2 pending, 0 completed
+  ✓ Active Learning       1 training samples (0 high-priority boundary cases)
+  ✓ Tool Hooks            126 audit entries (pre+post tool execution)
+  ✓ Agent Memory          7 entries (content=5, region=2)

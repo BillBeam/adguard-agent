@@ -102,6 +102,7 @@ type State struct {
 	// Review-specific state.
 	AdContent     *types.AdContent
 	PartialResult *PartialReviewResult
+	AgentRole     string // role of the agent ("content", "policy", "region", "single", "appeal")
 
 	// Audit trail: complete history of all state transitions.
 	TransitionLog []TransitionRecord

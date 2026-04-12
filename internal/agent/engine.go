@@ -10,6 +10,7 @@ import (
 
 	"github.com/BillBeam/adguard-agent/internal/compact"
 	"github.com/BillBeam/adguard-agent/internal/llm"
+	"github.com/BillBeam/adguard-agent/internal/memory"
 	"github.com/BillBeam/adguard-agent/internal/store"
 	"github.com/BillBeam/adguard-agent/internal/strategy"
 	"github.com/BillBeam/adguard-agent/internal/types"
@@ -20,6 +21,7 @@ import (
 type PostReviewHook interface {
 	PostReview(result types.ReviewResult, advertiserID, region, category, pipeline string)
 }
+
 
 // ReviewEngine manages ad review sessions.
 // It bridges the strategy matrix (what policies apply) with the agentic loop
@@ -54,6 +56,9 @@ type ReviewEngine struct {
 	preToolHooks  []PreToolHook
 	postToolHooks []PostToolHook
 	stopHooks     []StopHook
+
+	// Agent memory: cross-review learning (nil = disabled).
+	agentMemory *memory.AgentMemory
 }
 
 // NewReviewEngine creates a review engine with the given tools.
@@ -124,6 +129,12 @@ func (e *ReviewEngine) WithModelRouter(router *llm.ModelRouter) *ReviewEngine {
 	return e
 }
 
+// WithMemory attaches agent memory for cross-review learning.
+func (e *ReviewEngine) WithMemory(mem *memory.AgentMemory) *ReviewEngine {
+	e.agentMemory = mem
+	return e
+}
+
 // WithHooks injects tool-level hooks. Automatically applied when building each LoopConfig.
 func (e *ReviewEngine) WithHooks(pre []PreToolHook, post []PostToolHook, stop []StopHook) *ReviewEngine {
 	e.preToolHooks = pre
@@ -163,6 +174,7 @@ func (e *ReviewEngine) ProcessAppeal(
 	}
 
 	state := NewState(ad)
+	state.AgentRole = "appeal"
 	state.Messages = []types.Message{
 		{Role: types.RoleSystem, Content: types.NewTextContent(config.SystemPrompt)},
 		{Role: types.RoleUser, Content: types.NewTextContent(
@@ -262,7 +274,12 @@ func (e *ReviewEngine) Review(ctx context.Context, ad *types.AdContent) (*LoopRe
 	}
 
 	// Single-agent path (fast pipeline or no orchestrator).
-	config := NewLoopConfig(plan, ad, policies, e.tools, e.executor)
+	var memorySection string
+	if e.agentMemory != nil {
+		entries := e.agentMemory.LoadRelevant("single", ad.Region, ad.Category)
+		memorySection = e.agentMemory.FormatForPrompt(entries)
+	}
+	config := NewLoopConfig(plan, ad, policies, e.tools, e.executor, memorySection)
 	if e.contextManager != nil || e.tokenBudget != nil {
 		config.WithContextManagement(e.contextManager, e.tokenBudget)
 	}
@@ -286,6 +303,7 @@ func (e *ReviewEngine) Review(ctx context.Context, ad *types.AdContent) (*LoopRe
 
 	// 3. Initialize state.
 	state := NewState(ad)
+	state.AgentRole = "single"
 	state.Messages = buildInitialMessages(config.SystemPrompt)
 
 	// 4. Create events channel + consumer goroutine.

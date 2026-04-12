@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// Query Chain Tracking — "归因"环节的数据基础。
+// Query Chain Tracking — data foundation of the Attribution (归因) stage.
 //
 //   - chainId: UUID identifying the entire review chain (stays constant)
 //   - depth: nesting level (parent=0, specialist agents=1, adjudicator=1)
