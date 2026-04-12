@@ -109,14 +109,17 @@ type MultiAgentResult struct {
 	ChainLog     *ChainLog           `json:"chain_log"`
 }
 
-// RunMultiAgent executes the full Multi-Agent review pipeline.
+// RunMultiAgent executes the Coordinator-driven multi-agent review pipeline.
+//
+// The Coordinator is an agentic loop with a dispatch_specialist tool. It dynamically
+// decides which specialists to invoke, evaluates their results, and makes the final
+// review decision itself. This replaces the static fork-join + Adjudicator pattern.
 //
 // Flow:
-//  1. Create QueryChain for tracking
-//  2. Fork 3 specialist agents in parallel (goroutines)
-//  3. Collect and parse results
-//  4. Run Adjudicator with collected results
-//  5. Build final ReviewResult
+//  1. Create QueryChain + DispatchSpecialist tool
+//  2. Run Coordinator loop (LLM calls dispatch_specialist as needed)
+//  3. Coordinator outputs final ReviewResult JSON
+//  4. Apply L3 cross-validation as programmatic safety net
 func (o *Orchestrator) RunMultiAgent(ctx context.Context, ad *types.AdContent, plan types.ReviewPlan) (*MultiAgentResult, error) {
 	start := time.Now()
 	chain := NewQueryChain()
@@ -124,34 +127,90 @@ func (o *Orchestrator) RunMultiAgent(ctx context.Context, ad *types.AdContent, p
 
 	policies := o.matrix.GetApplicablePolicies(ad.Region, ad.Category)
 
-	o.logger.Info("multi-agent review started",
+	o.logger.Info("coordinator review started",
 		slog.String("ad_id", ad.ID),
 		slog.String("pipeline", plan.Pipeline),
 		slog.String("chain_id", chain.ChainID[:8]),
-		slog.Int("specialists", len(SpecialistAgentSpecs(plan.Pipeline))),
 	)
 
-	// Phase 1: Fork specialist agents in parallel.
-	specs := SpecialistAgentSpecs(plan.Pipeline)
-	agentResults := o.runSpecialists(ctx, ad, policies, plan, specs, chain, chainLog)
-
-	o.logger.Info("specialists completed",
-		slog.String("ad_id", ad.ID),
-		slog.Int("results", len(agentResults)),
+	// Create the dispatch tool bound to this review context.
+	dispatchTool := NewDispatchSpecialist(
+		o.client, o.matrix, o.registry, o.router, o.agentMemory,
+		dispatchHooks{pre: o.preToolHooks, post: o.postToolHooks, stop: o.stopHooks},
+		ad, policies, plan, chain, chainLog, o.logger,
 	)
 
-	// Phase 2: Run Adjudicator.
-	if o.onProgress != nil {
-		o.onProgress("adjudicator", "start", "synthesizing...")
-	}
-	adjResult := o.runAdjudicator(ctx, ad, agentResults, plan, chain, chainLog)
-	if o.onProgress != nil {
-		o.onProgress("adjudicator", "complete",
-			fmt.Sprintf("%-15s conf=%.2f  (%s)", adjResult.Decision, adjResult.Confidence, adjResult.Duration.Round(time.Millisecond)))
+	// Attach progress callback so dispatch reports each specialist's status.
+	dispatchTool.onProgress = o.onProgress
+
+	// Build Coordinator's tool definition.
+	coordToolDef := tool.ExportDefinition(dispatchTool)
+
+	// Load coordinator memory.
+	var memorySection string
+	if o.agentMemory != nil {
+		entries := o.agentMemory.LoadRelevant("coordinator", ad.Region, ad.Category)
+		memorySection = o.agentMemory.FormatForPrompt(entries)
 	}
 
-	// Phase 3: Build final ReviewResult from Adjudicator output.
-	result := o.buildFinalResult(ad, adjResult, agentResults, start)
+	// Coordinator loop config: only dispatch_specialist tool.
+	maxTurns := 8
+	if plan.Pipeline == "comprehensive" {
+		maxTurns = 12
+	}
+
+	// Wrap dispatch tool in a simple executor.
+	coordExecutor := &singleToolExecutor{tool: dispatchTool}
+
+	config := &LoopConfig{
+		MaxTurns:            maxTurns,
+		ConfidenceThreshold: plan.ConfidenceThreshold,
+		AllowAutoReject:     plan.AllowAutoReject,
+		Pipeline:            plan.Pipeline,
+		Tools:               []types.ToolDefinition{coordToolDef},
+		ToolExecutor:        coordExecutor,
+		SystemPrompt:        BuildCoordinatorPrompt(ad, policies, plan, memorySection),
+		DefaultMaxTokens:    DefaultMaxOutputTokens,
+		EscalatedMaxTokens:  EscalatedMaxOutputTokens,
+		MaxRecoveryAttempts: MaxRecoveryAttempts,
+		PreToolHooks:        o.preToolHooks,
+		PostToolHooks:       o.postToolHooks,
+		StopHooks:           o.stopHooks,
+		EnableStreaming:      true,
+	}
+
+	// Model routing: coordinator uses the strongest reasoning model.
+	if o.router != nil {
+		config.Model = o.router.RouteModel(plan.Pipeline, "adjudicator") // reuse adjudicator tier
+		if fb, ok := o.router.GetFallback(config.Model); ok {
+			config.FallbackModel = fb
+		}
+	}
+
+	// Run Coordinator loop.
+	if o.onProgress != nil {
+		o.onProgress("coordinator", "start", "directing review...")
+	}
+	state := NewState(ad)
+	state.AgentRole = "coordinator"
+	state.Messages = buildInitialMessages(config.SystemPrompt)
+
+	loopResult := Run(ctx, o.client, config, state, nil, o.logger)
+
+	if o.onProgress != nil {
+		decision := "MANUAL_REVIEW"
+		conf := 0.0
+		if loopResult.ReviewResult != nil {
+			decision = string(loopResult.ReviewResult.Decision)
+			conf = loopResult.ReviewResult.Confidence
+		}
+		o.onProgress("coordinator", "complete",
+			fmt.Sprintf("%-15s conf=%.2f  (%s)", decision, conf, time.Since(start).Round(time.Millisecond)))
+	}
+
+	// Build final result from Coordinator's decision.
+	agentResults := dispatchTool.Results()
+	result := o.buildCoordinatorResult(ad, loopResult, agentResults, start)
 
 	return &MultiAgentResult{
 		ReviewResult: result,
@@ -393,6 +452,114 @@ func (o *Orchestrator) buildFinalResult(
 
 	// L3 false-positive control: apply regardless of Adjudicator's output.
 	decision, confidence = applyL3Control(agentResults, decision, confidence)
+
+	return &types.ReviewResult{
+		AdID:           ad.ID,
+		Decision:       decision,
+		Confidence:     confidence,
+		Violations:     allViolations,
+		RiskLevel:      riskLevel,
+		AgentTrace:     trace,
+		ReviewDuration: time.Since(startTime),
+		Timestamp:      time.Now(),
+	}
+}
+
+// singleToolExecutor wraps a single Tool interface into a ToolExecutor.
+// Used by the Coordinator which has only the dispatch_specialist tool.
+type singleToolExecutor struct {
+	tool tool.Tool
+}
+
+func (e *singleToolExecutor) Execute(ctx context.Context, toolCalls []types.ToolCall) ([]types.Message, error) {
+	results := make([]types.Message, len(toolCalls))
+	for i, tc := range toolCalls {
+		if tc.Function.Name != e.tool.Name() {
+			results[i] = types.Message{
+				Role:       types.RoleTool,
+				Content:    types.NewTextContent(fmt.Sprintf(`{"error":"unknown tool %q"}`, tc.Function.Name)),
+				ToolCallID: tc.ID,
+			}
+			continue
+		}
+		output, err := e.tool.Execute(ctx, tc.Function.Arguments)
+		if err != nil {
+			results[i] = types.Message{
+				Role:       types.RoleTool,
+				Content:    types.NewTextContent(fmt.Sprintf(`{"error":%q}`, err.Error())),
+				ToolCallID: tc.ID,
+			}
+		} else {
+			results[i] = types.Message{
+				Role:       types.RoleTool,
+				Content:    types.NewTextContent(output),
+				ToolCallID: tc.ID,
+			}
+		}
+	}
+	return results, nil
+}
+
+// buildCoordinatorResult constructs the final ReviewResult from the Coordinator's
+// own decision + accumulated specialist results, with L3 safety net.
+func (o *Orchestrator) buildCoordinatorResult(
+	ad *types.AdContent,
+	loopResult *LoopResult,
+	agentResults []AgentResult,
+	startTime time.Time,
+) *types.ReviewResult {
+	// Merge violations from all specialists.
+	allViolations := mergeViolations(agentResults)
+
+	// Determine risk level.
+	riskLevel := types.RiskMedium
+	for _, v := range allViolations {
+		if v.Severity == "critical" {
+			riskLevel = types.RiskCritical
+			break
+		}
+		if v.Severity == "high" {
+			riskLevel = types.RiskHigh
+		}
+	}
+
+	// Build trace.
+	trace := buildMultiAgentTrace(agentResults, AgentResult{
+		Role:       "coordinator",
+		Decision:   "N/A",
+		Confidence: 0,
+	})
+
+	// Use Coordinator's decision if valid, otherwise programmatic aggregation.
+	decision := types.DecisionManualReview
+	confidence := 0.0
+
+	if loopResult.ReviewResult != nil {
+		decision = loopResult.ReviewResult.Decision
+		confidence = loopResult.ReviewResult.Confidence
+		// Merge coordinator's own violations if any.
+		for _, v := range loopResult.ReviewResult.Violations {
+			found := false
+			for _, existing := range allViolations {
+				if existing.PolicyID == v.PolicyID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				allViolations = append(allViolations, v)
+			}
+		}
+	} else {
+		// Coordinator failed — use programmatic aggregation.
+		o.logger.Warn("coordinator failed to produce decision, using programmatic aggregation")
+		decision, confidence = aggregateDecisions(agentResults)
+	}
+
+	// L3 false-positive control: programmatic safety net.
+	if len(agentResults) > 0 {
+		decision, confidence = applyL3Control(agentResults, decision, confidence)
+	}
 
 	return &types.ReviewResult{
 		AdID:           ad.ID,

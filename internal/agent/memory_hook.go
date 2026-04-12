@@ -35,7 +35,7 @@ func NewMemoryExtractionHook(mem *memory.AgentMemory, client llm.LLMClient, logg
 // BeforeStop triggers LLM-driven memory extraction from the completed review.
 // Graceful degradation: LLM errors are logged and skipped, never blocking the review.
 func (h *MemoryExtractionHook) BeforeStop(state *State, reason ExitReason) error {
-	if h.mem == nil || h.client == nil || reason != ExitCompleted {
+	if h.mem == nil || reason != ExitCompleted {
 		return nil
 	}
 	if state.PartialResult == nil || state.AdContent == nil {
@@ -45,6 +45,13 @@ func (h *MemoryExtractionHook) BeforeStop(state *State, reason ExitReason) error
 	role := state.AgentRole
 	if role == "" {
 		role = "single"
+	}
+
+	// When no LLM client is available (mock mode), fall back to rule-based extraction
+	// so that mock demo still shows memory entries in Feature Showcase.
+	if h.client == nil {
+		h.extractRuleBased(state, role)
+		return nil
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -262,6 +269,45 @@ func parseExtractionOutput(raw string) []memory.MemoryEntry {
 	}
 
 	return nil
+}
+
+// extractRuleBased is the fallback for mock mode (no LLM client).
+// Extracts basic patterns from structured ReviewResult so mock demo shows memory entries.
+func (h *MemoryExtractionHook) extractRuleBased(state *State, role string) {
+	ad := state.AdContent
+	violations := state.PartialResult.Violations
+
+	// High-confidence violations: record per advertiser+policy.
+	for _, v := range violations {
+		if v.Confidence >= 0.8 {
+			key := fmt.Sprintf("violation_%s_%s_%s_%s", ad.AdvertiserID, v.PolicyID, ad.Region, ad.Category)
+			h.mem.Add(memory.MemoryEntry{
+				Role:       role,
+				Key:        key,
+				Value:      fmt.Sprintf("[advertiser_pattern] %s: %s violation %s", ad.AdvertiserID, ad.Category, v.PolicyID),
+				Region:     ad.Region,
+				Category:   ad.Category,
+				Confidence: v.Confidence,
+			})
+		}
+	}
+
+	// Multi-violation pattern.
+	if len(violations) >= 2 {
+		ids := make([]string, 0, len(violations))
+		for _, v := range violations {
+			ids = append(ids, v.PolicyID)
+		}
+		key := fmt.Sprintf("multi_%s_%s_%s", ad.AdvertiserID, ad.Category, ad.Region)
+		h.mem.Add(memory.MemoryEntry{
+			Role:       role,
+			Key:        key,
+			Value:      fmt.Sprintf("[advertiser_pattern] %s multi-violation: %s", ad.AdvertiserID, strings.Join(ids, "+")),
+			Region:     ad.Region,
+			Category:   ad.Category,
+			Confidence: 0.7,
+		})
+	}
 }
 
 func convertExtracted(items []extractedMemory) []memory.MemoryEntry {

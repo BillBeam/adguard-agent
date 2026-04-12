@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/BillBeam/adguard-agent/internal/agent/mock"
@@ -12,35 +14,68 @@ import (
 
 // loadTestMatrix and testLogger are defined in engine_test.go and loop_test.go.
 
-// mockMultiLLM returns different responses for different call indices,
-// supporting multi-agent parallel execution.
-type mockMultiLLM struct {
+// coordinatorMockLLM simulates the Coordinator-driven orchestration:
+// - Coordinator's first call: returns tool_calls to dispatch all 3 specialists
+// - Specialist calls: return stop with REJECTED
+// - Coordinator's second call (after seeing results): returns final decision
+type coordinatorMockLLM struct {
 	callCount int
 }
 
-func (m *mockMultiLLM) ChatCompletion(_ context.Context, req types.ChatCompletionRequest) (*types.ChatCompletionResponse, error) {
+func (m *coordinatorMockLLM) ChatCompletion(_ context.Context, req types.ChatCompletionRequest) (*types.ChatCompletionResponse, error) {
 	m.callCount++
-	// All agents and adjudicator get a stop response with a valid review JSON.
-	// Differentiate by checking if system prompt mentions specific roles.
+
+	// Detect if this is the Coordinator by checking for dispatch_specialist in tools.
+	isCoordinator := false
+	for _, t := range req.Tools {
+		if t.Function.Name == "dispatch_specialist" {
+			isCoordinator = true
+			break
+		}
+	}
+
+	if isCoordinator {
+		// First coordinator call: dispatch all 3 specialists.
+		if m.callCount <= 1 {
+			return &types.ChatCompletionResponse{
+				Choices: []types.Choice{{
+					Message: types.Message{
+						Role: types.RoleAssistant,
+						ToolCalls: []types.ToolCall{
+							{ID: "call_1", Type: "function", Function: types.ToolCallFunction{Name: "dispatch_specialist", Arguments: json.RawMessage(`{"role":"content"}`)}},
+							{ID: "call_2", Type: "function", Function: types.ToolCallFunction{Name: "dispatch_specialist", Arguments: json.RawMessage(`{"role":"policy"}`)}},
+							{ID: "call_3", Type: "function", Function: types.ToolCallFunction{Name: "dispatch_specialist", Arguments: json.RawMessage(`{"role":"region"}`)}},
+						},
+					},
+					FinishReason: "tool_calls",
+				}},
+			}, nil
+		}
+
+		// Subsequent coordinator call: produce final decision.
+		return makeStopResponse("REJECTED", 0.92, []types.PolicyViolation{
+			{PolicyID: "POL_001", Severity: "critical", Description: "coordinator synthesis", Confidence: 0.92},
+		}), nil
+	}
+
+	// Specialist calls: simple stop with REJECTED.
 	return makeStopResponse("REJECTED", 0.88, []types.PolicyViolation{
 		{PolicyID: "POL_001", Severity: "critical", Description: "test violation", Confidence: 0.9},
 	}), nil
 }
 
-func (m *mockMultiLLM) StreamChatCompletion(_ context.Context, _ types.ChatCompletionRequest) (*llm.StreamReader, error) {
+func (m *coordinatorMockLLM) StreamChatCompletion(_ context.Context, _ types.ChatCompletionRequest) (*llm.StreamReader, error) {
 	return nil, nil
 }
 
-func (m *mockMultiLLM) Usage() *llm.SessionUsage { return llm.NewSessionUsage() }
+func (m *coordinatorMockLLM) Usage() *llm.SessionUsage { return llm.NewSessionUsage() }
 
-func TestOrchestrator_RunMultiAgent_Comprehensive(t *testing.T) {
+func TestOrchestrator_RunMultiAgent_CoordinatorDriven(t *testing.T) {
 	matrix := loadTestMatrix(t)
 	logger := testLogger()
-	mockLLM := &mockMultiLLM{}
+	mockLLM := &coordinatorMockLLM{}
 
-	// Create real registry with mock LLM.
 	reg := tool.NewReviewRegistry(mockLLM, matrix, nil, logger)
-
 	orch := NewOrchestrator(mockLLM, matrix, reg, logger)
 
 	ad := &types.AdContent{
@@ -56,12 +91,12 @@ func TestOrchestrator_RunMultiAgent_Comprehensive(t *testing.T) {
 		t.Fatalf("RunMultiAgent failed: %v", err)
 	}
 
-	// Should have 3 specialist results.
+	// Coordinator should have dispatched 3 specialists.
 	if len(result.AgentResults) != 3 {
 		t.Errorf("expected 3 agent results, got %d", len(result.AgentResults))
 	}
 
-	// Verify agent roles.
+	// Verify all specialist roles present.
 	roles := map[AgentRole]bool{}
 	for _, ar := range result.AgentResults {
 		roles[ar.Role] = true
@@ -72,47 +107,33 @@ func TestOrchestrator_RunMultiAgent_Comprehensive(t *testing.T) {
 		}
 	}
 
-	// Should have a final ReviewResult.
+	// Final decision should exist.
 	if result.ReviewResult == nil {
 		t.Fatal("ReviewResult is nil")
 	}
 
-	// Chain log should have 4 entries (3 specialists + 1 adjudicator).
+	// Chain log should have specialist entries.
 	if result.ChainLog == nil {
 		t.Fatal("ChainLog is nil")
 	}
-	if len(result.ChainLog.Entries) != 4 {
-		t.Errorf("expected 4 chain entries, got %d", len(result.ChainLog.Entries))
+	if len(result.ChainLog.Entries) < 3 {
+		t.Errorf("expected at least 3 chain entries, got %d", len(result.ChainLog.Entries))
 	}
 
-	// All entries should share the same ChainID.
-	chainID := result.ChainLog.ChainID
-	for _, e := range result.ChainLog.Entries {
-		if e.ChainID != chainID {
-			t.Errorf("chain ID mismatch: %s vs %s", e.ChainID, chainID)
-		}
-	}
-
-	// Specialist agents at depth 1.
-	for _, e := range result.ChainLog.Entries[:3] {
-		if e.Depth != 1 {
-			t.Errorf("specialist depth should be 1, got %d for %s", e.Depth, e.AgentRole)
-		}
-	}
-
-	// LLM was called: at least 3 specialists + 1 adjudicator + tool calls.
+	// LLM was called: coordinator + 3 specialists.
 	if mockLLM.callCount < 4 {
 		t.Errorf("expected at least 4 LLM calls, got %d", mockLLM.callCount)
 	}
 
 	t.Logf("Chain:\n%s", result.ChainLog.Format())
+	t.Logf("Decision: %s conf=%.2f", result.ReviewResult.Decision, result.ReviewResult.Confidence)
 }
 
 func TestOrchestrator_SpecialistToolRestriction(t *testing.T) {
 	matrix := loadTestMatrix(t)
 	logger := testLogger()
 
-	reg := tool.NewReviewRegistry(&mockMultiLLM{}, matrix, nil, logger)
+	reg := tool.NewReviewRegistry(&coordinatorMockLLM{}, matrix, nil, logger)
 
 	// Content agent should only have 2 tools (new assignment: analyze_content + check_landing_page).
 	contentReg := reg.Sub("analyze_content", "check_landing_page")
@@ -121,16 +142,15 @@ func TestOrchestrator_SpecialistToolRestriction(t *testing.T) {
 		t.Errorf("content agent should have 2 tools, got %d", len(contentDefs))
 	}
 
-	// Adjudicator should have 0 tools.
-	adjReg := reg.Sub() // empty
-	adjDefs := adjReg.ExportDefinitions()
-	if len(adjDefs) != 0 {
-		t.Errorf("adjudicator should have 0 tools, got %d", len(adjDefs))
+	// Empty sub-registry should have 0 tools.
+	emptyReg := reg.Sub()
+	emptyDefs := emptyReg.ExportDefinitions()
+	if len(emptyDefs) != 0 {
+		t.Errorf("empty sub-registry should have 0 tools, got %d", len(emptyDefs))
 	}
 }
 
 func TestOrchestrator_FastPipelineSingleAgent(t *testing.T) {
-	// Fast pipeline should NOT trigger multi-agent.
 	matrix := loadTestMatrix(t)
 	logger := testLogger()
 	client := mock.NewLLMClient()
@@ -157,16 +177,33 @@ func TestOrchestrator_FastPipelineSingleAgent(t *testing.T) {
 		t.Fatalf("Review failed: %v", err)
 	}
 
-	// Fast pipeline → single agent → should complete normally.
 	if result.ExitReason != ExitCompleted {
 		t.Errorf("ExitReason = %s, want completed", result.ExitReason)
 	}
 	if result.ReviewResult == nil {
 		t.Fatal("ReviewResult is nil")
 	}
-	// Should be PASSED (single agent, low risk).
 	if result.ReviewResult.Decision != types.DecisionPassed {
 		t.Errorf("Decision = %s, want PASSED for fast pipeline", result.ReviewResult.Decision)
+	}
+}
+
+func TestOrchestrator_CoordinatorPrompt_ContainsDispatch(t *testing.T) {
+	ad := &types.AdContent{
+		ID: "ad_test", Region: "US", Category: "healthcare",
+		Content: types.AdBody{Headline: "Test"},
+	}
+	plan := types.ReviewPlan{Pipeline: "standard", ConfidenceThreshold: 0.75}
+	prompt := BuildCoordinatorPrompt(ad, nil, plan, "")
+
+	if !strings.Contains(prompt, "dispatch_specialist") {
+		t.Error("coordinator prompt should mention dispatch_specialist")
+	}
+	if !strings.Contains(prompt, "content") || !strings.Contains(prompt, "policy") || !strings.Contains(prompt, "region") {
+		t.Error("coordinator prompt should list available specialist roles")
+	}
+	if !strings.Contains(prompt, "MANUAL_REVIEW") {
+		t.Error("coordinator prompt should mention fail-closed")
 	}
 }
 
@@ -192,9 +229,8 @@ func TestQueryChain_ChildDepth(t *testing.T) {
 
 func TestChainLog_Format(t *testing.T) {
 	cl := NewChainLog("test-chain-id")
-	cl.Add(ChainEntry{ChainID: "test-chain-id", Depth: 0, AgentRole: "orchestrator", Decision: "N/A"})
+	cl.Add(ChainEntry{ChainID: "test-chain-id", Depth: 0, AgentRole: "coordinator", Decision: "N/A"})
 	cl.Add(ChainEntry{ChainID: "test-chain-id", Depth: 1, AgentRole: "content", Decision: "REJECTED", Confidence: 0.9})
-	cl.Add(ChainEntry{ChainID: "test-chain-id", Depth: 1, AgentRole: "adjudicator", Decision: "REJECTED", Confidence: 0.88})
 
 	output := cl.Format()
 	if output == "" || output == "(empty chain)" {

@@ -12,6 +12,7 @@ import (
 	"github.com/BillBeam/adguard-agent/internal/llm"
 	"github.com/BillBeam/adguard-agent/internal/memory"
 	"github.com/BillBeam/adguard-agent/internal/store"
+	"github.com/BillBeam/adguard-agent/internal/tool"
 	"github.com/BillBeam/adguard-agent/internal/strategy"
 	"github.com/BillBeam/adguard-agent/internal/types"
 )
@@ -59,6 +60,9 @@ type ReviewEngine struct {
 
 	// Agent memory: cross-review learning (nil = disabled).
 	agentMemory *memory.AgentMemory
+
+	// Tool registry: used to create sub-registries for Appeal Agent.
+	toolRegistry *tool.Registry
 }
 
 // NewReviewEngine creates a review engine with the given tools.
@@ -129,6 +133,12 @@ func (e *ReviewEngine) WithModelRouter(router *llm.ModelRouter) *ReviewEngine {
 	return e
 }
 
+// WithToolRegistry attaches the tool registry for creating sub-registries (e.g., Appeal Agent).
+func (e *ReviewEngine) WithToolRegistry(reg *tool.Registry) *ReviewEngine {
+	e.toolRegistry = reg
+	return e
+}
+
 // WithMemory attaches agent memory for cross-review learning.
 func (e *ReviewEngine) WithMemory(mem *memory.AgentMemory) *ReviewEngine {
 	e.agentMemory = mem
@@ -160,17 +170,29 @@ func (e *ReviewEngine) ProcessAppeal(
 	// Transition to REVIEWING.
 	e.appealStore.SetReviewing(appeal.AppealID)
 
-	// Build Appeal Agent config — no tools, pure reasoning (same as Adjudicator).
+	// Build Appeal Agent config with investigation tools.
+	// Appeal Agent can independently re-verify facts (landing page, policies, history)
+	// but does NOT see the original agent_trace (independence preserved).
+	var appealTools []types.ToolDefinition
+	var appealExecutor ToolExecutor = &noOpExecutor{}
+	if e.toolRegistry != nil {
+		appealReg := e.toolRegistry.Sub("check_landing_page", "query_policy_kb", "lookup_history")
+		appealTools = appealReg.ExportDefinitions()
+		appealExecutor = tool.NewExecutor(appealReg, e.logger)
+	}
+
 	config := &LoopConfig{
-		MaxTurns:            3,
+		MaxTurns:            5, // more turns for tool-based investigation
 		ConfidenceThreshold: 0.7,
 		AllowAutoReject:     false,
 		Pipeline:            "appeal",
-		ToolExecutor:        &noOpExecutor{},
+		Tools:               appealTools,
+		ToolExecutor:        appealExecutor,
 		SystemPrompt:        BuildAppealSystemPrompt(ad, record, appeal.Reason),
 		DefaultMaxTokens:    DefaultMaxOutputTokens,
 		EscalatedMaxTokens:  EscalatedMaxOutputTokens,
 		MaxRecoveryAttempts: MaxRecoveryAttempts,
+		EnableStreaming:     true,
 	}
 
 	state := NewState(ad)

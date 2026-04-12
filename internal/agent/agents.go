@@ -191,8 +191,63 @@ func writeRoleToolInstructions(b *strings.Builder, role AgentRole) {
 	}
 }
 
-// --- Adjudicator and Appeal prompts (unchanged — different structure) ---
+// --- Coordinator prompt (replaces Adjudicator in the new orchestration model) ---
 
+// BuildCoordinatorPrompt constructs the system prompt for the review Coordinator.
+// The Coordinator directs specialist agents and makes the final decision itself.
+func BuildCoordinatorPrompt(ad *types.AdContent, policies []types.Policy, plan types.ReviewPlan, memorySection string) string {
+	var b strings.Builder
+
+	b.WriteString("You are the review coordinator for a multi-agent ad content safety system. ")
+	b.WriteString("You direct specialist agents to investigate different aspects of the ad, ")
+	b.WriteString("then synthesize their findings into a final review decision.\n\n")
+
+	// Available specialists.
+	b.WriteString("=== AVAILABLE SPECIALISTS ===\n")
+	b.WriteString("Use dispatch_specialist to send a specialist agent to investigate:\n")
+	b.WriteString("- content: Detects problematic claims, Algospeak, misleading language, landing page issues\n")
+	b.WriteString("- policy: Checks policy compliance, category restrictions, required qualifications\n")
+	b.WriteString("- region: Verifies regional regulations, advertiser history, cultural sensitivity\n\n")
+
+	// Coordination strategy.
+	b.WriteString("=== COORDINATION STRATEGY ===\n")
+	b.WriteString("1. Dispatch specialists to investigate. You decide which ones are needed and in what order.\n")
+	b.WriteString("2. After receiving results, decide: need more investigation? Or ready to decide?\n")
+	b.WriteString("3. If a specialist fails (exit_reason != completed), you can retry or proceed with available results.\n")
+	b.WriteString("4. When ready, output your final review decision as JSON — you are the decision-maker.\n")
+	b.WriteString("5. Fail-closed: when uncertain, output MANUAL_REVIEW.\n\n")
+
+	// Pipeline parameters.
+	fmt.Fprintf(&b, "Review pipeline: %s\n", plan.Pipeline)
+	fmt.Fprintf(&b, "Confidence threshold: %.2f (below this → MANUAL_REVIEW)\n\n", plan.ConfidenceThreshold)
+
+	// Ad content.
+	writeAdContent(&b, ad)
+
+	// Policy summary.
+	writePolicies(&b, policies)
+
+	// Memory section.
+	if memorySection != "" {
+		b.WriteString("\n")
+		b.WriteString(memorySection)
+		b.WriteString("\n")
+	}
+
+	// Output format.
+	b.WriteString("=== OUTPUT FORMAT ===\n")
+	b.WriteString("When you have enough information, output ONLY a JSON object:\n")
+	b.WriteString(`{"decision":"PASSED|REJECTED|MANUAL_REVIEW","confidence":0.0-1.0,`)
+	b.WriteString(`"violations":[{"policy_id":"...","severity":"...","description":"...","confidence":0.0-1.0,"evidence":"..."}],`)
+	b.WriteString(`"reasoning":"brief explanation of how specialist findings led to this decision"}`)
+	b.WriteString("\n")
+
+	return b.String()
+}
+
+// BuildAdjudicatorPrompt is kept for backward compatibility in tests.
+// In the new orchestration model, the Coordinator makes the final decision directly.
+//
 // BuildAdjudicatorPrompt constructs the Adjudicator's system prompt
 // with the specialist agents' results embedded.
 func BuildAdjudicatorPrompt(ad *types.AdContent, agentResults []AgentResult, plan types.ReviewPlan) string {
@@ -325,11 +380,20 @@ func BuildAppealSystemPrompt(ad *types.AdContent, record *store.ReviewRecord, ap
 	b.WriteString("=== ADVERTISER'S APPEAL REASON ===\n")
 	fmt.Fprintf(&b, "%s\n\n", appealReason)
 
+	b.WriteString("=== INVESTIGATION TOOLS ===\n")
+	b.WriteString("You have tools to independently re-investigate the ad:\n")
+	b.WriteString("- check_landing_page: Verify if the landing page has been fixed (as the advertiser may claim)\n")
+	b.WriteString("- query_policy_kb: Look up the exact policy text to verify if cited violations actually apply\n")
+	b.WriteString("- lookup_history: Check the advertiser's compliance record and similar past cases\n")
+	b.WriteString("Use these tools to verify the advertiser's claims before making your decision.\n\n")
+
 	b.WriteString("=== INSTRUCTIONS ===\n")
-	b.WriteString("Consider the advertiser's appeal reason carefully. Determine whether:\n")
-	b.WriteString("- The original violations are valid and the REJECTED decision should be UPHELD\n")
-	b.WriteString("- The advertiser's explanation shows the ad is compliant and should be OVERTURNED (PASSED)\n")
-	b.WriteString("- Some violations are valid but others are not (MANUAL_REVIEW for partial modification)\n\n")
+	b.WriteString("1. Use available tools to independently re-investigate the ad and the advertiser's claims.\n")
+	b.WriteString("2. Consider the advertiser's appeal reason carefully.\n")
+	b.WriteString("3. Determine whether:\n")
+	b.WriteString("   - The original violations are valid and the REJECTED decision should be UPHELD\n")
+	b.WriteString("   - The advertiser's explanation shows the ad is compliant and should be OVERTURNED (PASSED)\n")
+	b.WriteString("   - Some violations are valid but others are not (MANUAL_REVIEW for partial modification)\n\n")
 
 	b.WriteString("=== OUTPUT FORMAT ===\n")
 	b.WriteString("Output ONLY a JSON object:\n")

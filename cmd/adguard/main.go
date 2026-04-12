@@ -182,6 +182,7 @@ func runWithMockLLM(matrix *strategy.StrategyMatrix, logger *slog.Logger, cfg *c
 		engine.WithModelRouter(router)
 		engine.WithHooks(preHooks, postHooks, stopHooks)
 		engine.WithMemory(agentMemory)
+	engine.WithToolRegistry(reg)
 		engine.WithPhase3(nil, nil, reviewStore, nil)
 		engine.WithPhase5(trainingPool, appealStore, reputationMgr, versionMgr)
 
@@ -337,6 +338,7 @@ func buildEngine(client llm.LLMClient, matrix *strategy.StrategyMatrix, logger *
 	engine.WithPhase5(trainingPool, appealStore, reputationMgr, versionMgr)
 	engine.WithHooks(preHooks, postHooks, stopHooks)
 	engine.WithMemory(agentMemory)
+	engine.WithToolRegistry(reg)
 
 	stores := &engineStores{
 		reviewStore: reviewStore, trainingPool: trainingPool,
