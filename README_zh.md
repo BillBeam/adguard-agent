@@ -12,7 +12,7 @@
 - **LLM 驱动的记忆抽取** — 审核完成后，抽取 Agent 分析审核上下文，自主决定哪些模式值得记忆（广告主行为、Algospeak 变体、策略先例、地区边界案例）。
 - **反确认偏误验证** — L4 Verifier 采用对抗性 prompt：强制生成反论 + 预驳斥常见合理化借口，防止 LLM 橡皮图章式确认。
 - **Appeal Agent 独立调查** — 申诉审核可使用落地页检查、策略查询、历史查询工具独立验证广告主声明，而非纯推理。
-- **系统监控** — 批量审核后自动检测异常：拒绝率突增、广告主违规聚集、策略热点、验证 override 趋势。
+- **系统监控（5 维感知检查）** — 批量审核后全维度健康检查：拒绝率突增、Override 率、广告主聚集、策略热点、置信度下降。无论是否触发异常均展示完整检查清单。
 - **流式工具执行** — LLM 流式响应中通过 JSON 边界检测提前调度工具，并发安全的并行执行。
 - **数据驱动策略矩阵** — 零硬编码业务规则，所有策略、地区规则、品类风险从 JSON 配置加载。
 
@@ -69,25 +69,42 @@ data/
 ```
 --- ad_001 (US/healthcare) [multi-agent] ---
   ├─ coordinator:   directing review...
-  ├─ content:       analyzing...
-  ├─ policy:        analyzing...
-  ├─ region:        analyzing...
-  ├─ content:       REJECTED        conf=1.00  (17.5s)
-  ├─ region:        REJECTED        conf=0.98  (20.8s)
-  ├─ policy:        REJECTED        conf=0.95  (21.1s)
-  ├─ coordinator:   REJECTED        conf=1.00  (33.8s)
+  ├─ content:       REJECTED        conf=1.00  (18.6s)
+  ├─ policy:        REJECTED        conf=1.00  (19.2s)
+  ├─ region:        REJECTED        conf=1.00  (21.3s)
+  ├─ coordinator:   REJECTED        conf=1.00  (35.9s)
   Verification: override
-  → MANUAL_REVIEW  conf=1.00  33.8s  (expected: REJECTED)
+  → MANUAL_REVIEW  conf=1.00  35.894s  [v1.0]  (expected: REJECTED)
+
+  Appeal: ad_001
+    ├─ appeal:   tool_call:check_landing_page
+    ├─ appeal:   tool_call:query_policy_kb
+    ├─ appeal:   tool_call:lookup_history
+    ├─ appeal:   PARTIAL  conf=1.00  (15.3s)
+    ├─ reasoning: The advertiser's appeal provides no specific evidence...
+
+=== Scheduled Recheck ===
+  Recheck: ad_002 (was PASSED, 24h recheck)
+  ├─ coordinator:   directing review...
+  ...
+  → PASSED  conf=0.95  28.117s  (no change)
 
 === Monitor Report ===
-  Reviews: 3 | Rejection rate: 33% | Avg confidence: 0.92 | Override rate: 100%
-  Recommendations:
-    - Override rate 100% appears high but sample size is too small (1 verification)
+  Reviews: 3 | Rejection rate: 33% | Avg confidence: 0.93 | Override rate: 100%
+  Perception checks:
+    ✓ Rejection spike      33% (threshold: 50%) — normal
+    ⚠ Override rate        100% (threshold: 20%) — sample too small (1 verification)
+    ✓ Advertiser cluster   no repeat offenders detected
+    ✓ Policy hotspot       POL_002 (1 hits) — below threshold
+    ✓ Confidence drop      0.93 (threshold: 0.70) — normal
 
 === Feature Showcase ===
-  Graceful Shutdown, JSONL Persistence, Model Routing, Tool Result Budget,
-  Streaming Executor, Strategy A/B, Scheduled Recheck, Active Learning,
-  Tool Hooks (162 audit entries), Agent Memory (15 entries), System Monitor
+  ✓ JSONL Persistence     9 reviews persisted (crash-safe, append-only)
+  ✓ Model Routing         per-pipeline×role routing + 529 cross-provider fallback
+  ✓ Scheduled Recheck     0 pending, 1 completed
+  ✓ Training Data Pool    3 samples (review=2, verification_override=1, appeal_overturn=0, active_learning=0)
+  ✓ Agent Memory          16 entries (region=6, single=4, content=2, policy=2, coordinator=2)
+  Total Cost: $0.0452
 ```
 
 ## 技术栈

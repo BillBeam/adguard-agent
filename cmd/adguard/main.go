@@ -118,6 +118,7 @@ func runWithRealLLM(cfg *config.Config, matrix *strategy.StrategyMatrix, logger 
 
 	demoAppeal(context.Background(), engine, stores, samples, logger)
 	demoVersionManager(stores.versionMgr, logger)
+	demoRecheck(context.Background(), engine, stores, samples)
 
 	// System Monitor: analyze review data for anomalies.
 	monitorReport := agent.RunMonitor(stores.reviewStore, logger)
@@ -233,23 +234,39 @@ func runWithMockLLM(matrix *strategy.StrategyMatrix, logger *slog.Logger, cfg *c
 		if err != nil {
 			continue
 		}
+		var outcome store.AppealOutcome
+		var reasoning string
 		// Simulate appeal outcome: first UPHELD, second OVERTURNED.
 		if appealCount == 0 {
-			appealStore.Resolve(appeal.AppealID, store.AppealUpheld, "simulated: violations confirmed")
+			outcome = store.AppealUpheld
+			reasoning = "simulated: violations confirmed after re-checking policy and landing page"
+			appealStore.Resolve(appeal.AppealID, outcome, reasoning)
 		} else {
-			appealStore.Resolve(appeal.AppealID, store.AppealOverturned, "simulated: ad is actually compliant")
+			outcome = store.AppealOverturned
+			reasoning = "simulated: ad is actually compliant after independent investigation"
+			appealStore.Resolve(appeal.AppealID, outcome, reasoning)
 			trainingPool.Add(&store.TrainingRecord{
 				AdID: rec.AdID, Source: store.SourceAppealOverturn,
 				OriginalDecision: types.DecisionRejected, FinalDecision: types.DecisionPassed,
 				Region: rec.Region, Category: rec.Category,
 			})
 		}
+		fmt.Printf("\n  Appeal: %s\n", rec.AdID)
+		fmt.Printf("    ├─ appeal:   tool_call:check_landing_page (simulated)\n")
+		fmt.Printf("    ├─ appeal:   tool_call:query_policy_kb (simulated)\n")
+		fmt.Printf("    ├─ appeal:   tool_call:lookup_history (simulated)\n")
+		fmt.Printf("    ├─ appeal:   %s  (simulated)\n", outcome)
+		fmt.Printf("    ├─ reasoning: %s\n", reasoning)
 		appealCount++
 	}
 
 	// Version demo.
 	versionMgr.Create("v2.0")
 	versionMgr.Deploy("v2.0", 10)
+
+	// Recheck demo.
+	mockRecheckStores := &engineStores{recheckScheduler: recheckScheduler}
+	demoRecheckMock(mockRecheckStores)
 
 	// System Monitor.
 	monitorReport := agent.RunMonitor(reviewStore, logger)
@@ -396,10 +413,14 @@ func printReviewResult(ad *types.AdContent, result *agent.LoopResult, expected s
 		}
 	}
 
-	// Final decision line.
-	fmt.Printf("  → %s  conf=%.2f  %s  (expected: %s)\n",
+	// Final decision line with version tag.
+	versionTag := ""
+	if rec, ok := stores.reviewStore.Get(ad.ID); ok && rec.StrategyVersionID != "" {
+		versionTag = fmt.Sprintf("  [%s]", rec.StrategyVersionID)
+	}
+	fmt.Printf("  → %s  conf=%.2f  %s%s  (expected: %s)\n",
 		rr.Decision, rr.Confidence,
-		rr.ReviewDuration.Round(time.Millisecond), expected)
+		rr.ReviewDuration.Round(time.Millisecond), versionTag, expected)
 }
 
 func printFeatureShowcase(stores *engineStores, client llm.LLMClient) {
@@ -443,8 +464,12 @@ func printFeatureShowcase(stores *engineStores, client llm.LLMClient) {
 	// 8. Active Learning
 	if stores.trainingPool != nil {
 		ts := stores.trainingPool.Stats()
-		fmt.Printf("  ✓ Active Learning       %d training samples (%d high-priority boundary cases)\n",
-			ts.Total, ts.HighPriorityCount)
+		fmt.Printf("  ✓ Training Data Pool    %d samples (review=%d, verification_override=%d, appeal_overturn=%d, active_learning=%d)\n",
+			ts.Total,
+			ts.BySource[store.SourceReview],
+			ts.BySource[store.SourceVerificationOverride],
+			ts.BySource[store.SourceAppealOverturn],
+			ts.BySource[store.SourceActiveLearning])
 	}
 
 	// 9. Tool Hooks (audit trail + circuit-breaker protection)
@@ -500,8 +525,37 @@ func demoAppeal(ctx context.Context, engine *agent.ReviewEngine, stores *engineS
 		return
 	}
 
-	outcome, _ := engine.ProcessAppeal(ctx, ad, rec, appeal)
-	fmt.Printf("\n  Appeal: %s → %s\n", rec.AdID, outcome)
+	fmt.Printf("\n  Appeal: %s\n", rec.AdID)
+	outcome, loopResult, _ := engine.ProcessAppeal(ctx, ad, rec, appeal)
+
+	// Print tool investigation trace.
+	if loopResult != nil && loopResult.State != nil {
+		for _, entry := range loopResult.State.PartialResult.AgentTrace {
+			if strings.HasPrefix(entry, "tool_call:") {
+				fmt.Printf("    ├─ appeal:   %s\n", entry)
+			}
+		}
+		// Decision line with confidence and duration.
+		conf := 0.0
+		duration := time.Since(loopResult.State.StartedAt)
+		if loopResult.ReviewResult != nil {
+			conf = loopResult.ReviewResult.Confidence
+			duration = loopResult.ReviewResult.ReviewDuration
+		}
+		fmt.Printf("    ├─ appeal:   %s  conf=%.2f  (%s)\n",
+			outcome, conf, duration.Round(time.Millisecond))
+
+		// Reasoning summary (truncate to 100 chars).
+		if resolved, ok := stores.appealStore.GetByAdID(rec.AdID); ok && resolved.Reasoning != "" {
+			reasoning := resolved.Reasoning
+			if len(reasoning) > 100 {
+				reasoning = reasoning[:100] + "..."
+			}
+			fmt.Printf("    ├─ reasoning: %s\n", reasoning)
+		}
+	} else {
+		fmt.Printf("    → %s\n", outcome)
+	}
 }
 
 func demoVersionManager(vm *strategy.VersionManager, logger *slog.Logger) {
@@ -537,6 +591,81 @@ func simulateVerification(rs *store.ReviewStore, tp *store.TrainingPool, matrix 
 	return stats
 }
 
+
+func demoRecheck(ctx context.Context, engine *agent.ReviewEngine, stores *engineStores, samples []types.TestAdSample) {
+	// Get all pending tasks (skip 24h wait for demo).
+	pending := stores.recheckScheduler.DueTasks(time.Now().Add(48 * time.Hour))
+	if len(pending) == 0 {
+		return
+	}
+
+	fmt.Println("\n=== Scheduled Recheck ===")
+	for _, task := range pending {
+		// Find original ad.
+		var ad *types.AdContent
+		for i := range samples {
+			if samples[i].AdContent.ID == task.AdID {
+				ad = &samples[i].AdContent
+				break
+			}
+		}
+		if ad == nil {
+			stores.recheckScheduler.Complete(task.TaskID, "error: ad not found")
+			continue
+		}
+
+		fmt.Printf("  Recheck: %s (was PASSED, 24h recheck)\n", task.AdID)
+
+		stores.budget.ResetForReview()
+		stores.cbHook.Reset()
+		result, err := engine.Review(ctx, ad)
+		if err != nil {
+			fmt.Printf("  → ERROR: %s\n", err)
+			stores.recheckScheduler.Complete(task.TaskID, "error: review failed")
+			continue
+		}
+
+		if result.ReviewResult != nil {
+			newDecision := result.ReviewResult.Decision
+			if newDecision == types.DecisionPassed {
+				fmt.Printf("  → %s  conf=%.2f  %s  (no change)\n",
+					newDecision, result.ReviewResult.Confidence,
+					result.ReviewResult.ReviewDuration.Round(time.Millisecond))
+				stores.recheckScheduler.Complete(task.TaskID, "unchanged")
+			} else {
+				fmt.Printf("  → %s  conf=%.2f  %s  (DOWNGRADE: PASSED → %s, fed to training pool)\n",
+					newDecision, result.ReviewResult.Confidence,
+					result.ReviewResult.ReviewDuration.Round(time.Millisecond),
+					newDecision)
+				stores.recheckScheduler.Complete(task.TaskID, fmt.Sprintf("changed: now %s", newDecision))
+				if stores.trainingPool != nil {
+					stores.trainingPool.Add(&store.TrainingRecord{
+						AdID:             ad.ID,
+						Source:           store.SourceVerificationOverride,
+						OriginalDecision: types.DecisionPassed,
+						FinalDecision:    newDecision,
+						Region:           ad.Region,
+						Category:         ad.Category,
+					})
+				}
+			}
+		}
+	}
+}
+
+func demoRecheckMock(stores *engineStores) {
+	pending := stores.recheckScheduler.DueTasks(time.Now().Add(48 * time.Hour))
+	if len(pending) == 0 {
+		return
+	}
+
+	fmt.Println("\n=== Scheduled Recheck ===")
+	for _, task := range pending {
+		fmt.Printf("  Recheck: %s (was PASSED, 24h recheck)\n", task.AdID)
+		fmt.Printf("  → PASSED  conf=0.95  (no change, simulated)\n")
+		stores.recheckScheduler.Complete(task.TaskID, "unchanged")
+	}
+}
 
 func loadSamples(path string) ([]types.TestAdSample, error) {
 	data, err := os.ReadFile(path)

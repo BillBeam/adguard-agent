@@ -261,6 +261,10 @@ func (rs *ReviewStore) SetVersionID(adID, versionID string) {
 	defer rs.mu.Unlock()
 	if r, ok := rs.records[adID]; ok {
 		r.StrategyVersionID = versionID
+		// Persist the updated record (aligned with UpdateVerification pattern).
+		if rs.jsonl != nil {
+			rs.jsonl.Append(r)
+		}
 	}
 }
 

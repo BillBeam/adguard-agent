@@ -12,7 +12,7 @@ Multi-Agent content safety system for international ad review, built in Go.
 - **LLM-driven memory extraction**: After each review, an extraction agent analyzes the review context and autonomously decides what patterns are worth remembering (advertiser behavior, Algospeak variants, policy precedents, regional edge cases).
 - **Anti-confirmation-bias verification**: Adversarial L4 verifier forces counterarguments and pre-debunks common rationalization patterns before judging REJECTED decisions.
 - **Appeal agent with investigation tools**: Appeal agents can independently re-verify advertiser claims using landing page checks, policy lookups, and history queries.
-- **System Monitor**: Post-batch anomaly detection — rejection rate spikes, advertiser violation clustering, policy hotspots, verification override trends.
+- **System Monitor (5-dimension perception)**: Post-batch health check — rejection spike, override rate, advertiser clustering, policy hotspots, confidence drop. Full checklist shown regardless of anomaly count.
 - **Streaming tool execution**: Tools dispatch during LLM streaming via JSON boundary detection, with concurrent-safe parallel execution.
 - **Data-driven strategy matrix**: Zero hardcoded business rules — all policies, region rules, and category risk levels loaded from JSON configuration.
 - **Context compression**: Three-layer cascading compression (MicroCompact, AutoCompact, ReactiveCompact) for long review sessions.
@@ -70,26 +70,43 @@ data/
 
 ```
 --- ad_001 (US/healthcare) [multi-agent] ---
-  |-- coordinator:   directing review...
-  |-- content:       analyzing...
-  |-- policy:        analyzing...
-  |-- region:        analyzing...
-  |-- content:       REJECTED        conf=1.00  (17.5s)
-  |-- region:        REJECTED        conf=0.98  (20.8s)
-  |-- policy:        REJECTED        conf=0.95  (21.1s)
-  |-- coordinator:   REJECTED        conf=1.00  (33.8s)
+  ├─ coordinator:   directing review...
+  ├─ content:       REJECTED        conf=1.00  (18.6s)
+  ├─ policy:        REJECTED        conf=1.00  (19.2s)
+  ├─ region:        REJECTED        conf=1.00  (21.3s)
+  ├─ coordinator:   REJECTED        conf=1.00  (35.9s)
   Verification: override
-  -> MANUAL_REVIEW  conf=1.00  33.8s  (expected: REJECTED)
+  → MANUAL_REVIEW  conf=1.00  35.894s  [v1.0]  (expected: REJECTED)
+
+  Appeal: ad_001
+    ├─ appeal:   tool_call:check_landing_page
+    ├─ appeal:   tool_call:query_policy_kb
+    ├─ appeal:   tool_call:lookup_history
+    ├─ appeal:   PARTIAL  conf=1.00  (15.3s)
+    ├─ reasoning: The advertiser's appeal provides no specific evidence...
+
+=== Scheduled Recheck ===
+  Recheck: ad_002 (was PASSED, 24h recheck)
+  ├─ coordinator:   directing review...
+  ...
+  → PASSED  conf=0.95  28.117s  (no change)
 
 === Monitor Report ===
-  Reviews: 3 | Rejection rate: 33% | Avg confidence: 0.92 | Override rate: 100%
-  Recommendations:
-    - Override rate 100% appears high but sample size is too small (1 verification)
+  Reviews: 3 | Rejection rate: 33% | Avg confidence: 0.93 | Override rate: 100%
+  Perception checks:
+    ✓ Rejection spike      33% (threshold: 50%) — normal
+    ⚠ Override rate        100% (threshold: 20%) — sample too small (1 verification)
+    ✓ Advertiser cluster   no repeat offenders detected
+    ✓ Policy hotspot       POL_002 (1 hits) — below threshold
+    ✓ Confidence drop      0.93 (threshold: 0.70) — normal
 
 === Feature Showcase ===
-  Graceful Shutdown, JSONL Persistence, Model Routing, Tool Result Budget,
-  Streaming Executor, Strategy A/B, Scheduled Recheck, Active Learning,
-  Tool Hooks (162 audit entries), Agent Memory (15 entries), System Monitor
+  ✓ JSONL Persistence     9 reviews persisted (crash-safe, append-only)
+  ✓ Model Routing         per-pipeline×role routing + 529 cross-provider fallback
+  ✓ Scheduled Recheck     0 pending, 1 completed
+  ✓ Training Data Pool    3 samples (review=2, verification_override=1, appeal_overturn=0, active_learning=0)
+  ✓ Agent Memory          16 entries (region=6, single=4, content=2, policy=2, coordinator=2)
+  Total Cost: $0.0452
 ```
 
 ## Tech Stack

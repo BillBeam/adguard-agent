@@ -157,14 +157,15 @@ func (e *ReviewEngine) WithHooks(pre []PreToolHook, post []PostToolHook, stop []
 // The Appeal Agent sees: ad content + original decision + violations + appeal reason.
 // It does NOT see agent_trace (independence from original review).
 // fail-closed: Agent failure → UPHELD (maintain original REJECTED).
+// Returns the outcome, LoopResult (for trace/reasoning inspection), and error.
 func (e *ReviewEngine) ProcessAppeal(
 	ctx context.Context,
 	ad *types.AdContent,
 	record *store.ReviewRecord,
 	appeal *store.Appeal,
-) (store.AppealOutcome, error) {
+) (store.AppealOutcome, *LoopResult, error) {
 	if e.appealStore == nil {
-		return store.AppealUpheld, fmt.Errorf("appeal store not configured")
+		return store.AppealUpheld, nil, fmt.Errorf("appeal store not configured")
 	}
 
 	// Transition to REVIEWING.
@@ -267,7 +268,7 @@ func (e *ReviewEngine) ProcessAppeal(
 		slog.String("outcome", string(outcome)),
 	)
 
-	return outcome, nil
+	return outcome, loopResult, nil
 }
 
 // Review executes a complete review for a single ad.
@@ -465,6 +466,12 @@ func (e *ReviewEngine) reviewMultiAgent(ctx context.Context, ad *types.AdContent
 	// Run PostReviewHook chain (same as single-agent path).
 	if e.postReviewHook != nil {
 		e.postReviewHook.PostReview(*result, ad.AdvertiserID, ad.Region, ad.Category, plan.Pipeline)
+	}
+
+	// Phase 5: stamp version ID (same as single-agent path).
+	if e.versionManager != nil && e.reviewStore != nil {
+		versionID := e.versionManager.RouteTraffic(ad.ID)
+		e.reviewStore.SetVersionID(ad.ID, versionID)
 	}
 
 	// Phase 3: Verification (for comprehensive pipeline).

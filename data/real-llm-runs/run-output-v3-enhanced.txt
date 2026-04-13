@@ -1,0 +1,100 @@
+
+╔══════════════════════════════════════════════════════╗
+║  AdGuard Agent — Ad Content Safety Review System     ║
+║  Multi-Agent  |  6 tools  |  Agent Hooks             ║
+╚══════════════════════════════════════════════════════╝
+=== Model Routing ===
+  fast                   → grok-4-1-fast-non-reasoning
+  standard               → grok-4-1-fast-reasoning
+  comprehensive          → grok-4.20-0309-reasoning
+  coordinator            → grok-4.20-0309-reasoning
+  appeal                 → grok-4.20-0309-reasoning
+  fallback chain: grok-4.20-0309-reasoning → grok-4-1-fast-reasoning → gpt-4o
+
+=== Review: 3 ads ===
+
+--- ad_001 (US/healthcare) [multi-agent] ---
+  ├─ coordinator:   directing review...
+  ├─ content:       analyzing...
+  ├─ region:        analyzing...
+  ├─ policy:        analyzing...
+  ├─ content:       REJECTED        conf=1.00  (18.608s)
+  ├─ policy:        REJECTED        conf=1.00  (19.162s)
+  ├─ region:        REJECTED        conf=1.00  (21.256s)
+  ├─ coordinator:   REJECTED        conf=1.00  (35.894s)
+  Verification: override
+  → MANUAL_REVIEW  conf=1.00  35.894s  [v1.0]  (expected: REJECTED)
+
+--- ad_002 (US/finance) [multi-agent] ---
+  ├─ coordinator:   directing review...
+  ├─ content:       analyzing...
+  ├─ policy:        analyzing...
+  ├─ region:        analyzing...
+  ├─ content:       PASSED          conf=0.95  (15.672s)
+  ├─ region:        PASSED          conf=0.95  (16.606s)
+  ├─ policy:        PASSED          conf=0.95  (18.312s)
+  ├─ coordinator:   PASSED          conf=0.95  (27.641s)
+  Recheck: 24h scheduled (high-risk PASSED)
+  → PASSED  conf=0.95  27.641s  [v1.0]  (expected: PASSED)
+
+--- ad_003 (EU/healthcare) [multi-agent] ---
+  ├─ coordinator:   directing review...
+  ├─ content:       analyzing...
+  ├─ policy:        analyzing...
+  ├─ region:        analyzing...
+  ├─ policy:        MANUAL_REVIEW   conf=0.82  (16.77s)
+  ├─ region:        MANUAL_REVIEW   conf=0.78  (17.053s)
+  ├─ content:       MANUAL_REVIEW   conf=0.78  (21.936s)
+  ├─ coordinator:   MANUAL_REVIEW   conf=0.80  (35.339s)
+  → MANUAL_REVIEW  conf=0.85  35.339s  [v1.0]  (expected: PASSED)
+
+  Appeal: ad_001
+    ├─ appeal:   tool_call:check_landing_page
+    ├─ appeal:   tool_call:query_policy_kb
+    ├─ appeal:   tool_call:query_policy_kb
+    ├─ appeal:   tool_call:query_policy_kb
+    ├─ appeal:   tool_call:query_policy_kb
+    ├─ appeal:   tool_call:query_policy_kb
+    ├─ appeal:   tool_call:query_policy_kb
+    ├─ appeal:   tool_call:lookup_history
+    ├─ appeal:   PARTIAL  conf=1.00  (15.307s)
+    ├─ reasoning: The advertiser's appeal provides no specific evidence, fixes, or arguments demonstrating compliance....
+
+  Version: v1.0 active, v2.0 canary (10%)
+
+=== Scheduled Recheck ===
+  Recheck: ad_002 (was PASSED, 24h recheck)
+  ├─ coordinator:   directing review...
+  ├─ content:       analyzing...
+  ├─ policy:        analyzing...
+  ├─ region:        analyzing...
+  ├─ content:       PASSED          conf=0.95  (14.654s)
+  ├─ region:        PASSED          conf=0.95  (16.609s)
+  ├─ policy:        PASSED          conf=0.95  (19.39s)
+  ├─ coordinator:   PASSED          conf=0.95  (28.117s)
+  → PASSED  conf=0.95  28.117s  (no change)
+
+=== Monitor Report ===
+  Reviews: 3 | Rejection rate: 33% | Avg confidence: 0.93 | Override rate: 100%
+  Perception checks:
+    ✓ Rejection spike      33% (threshold: 50%) — normal
+    ⚠ Override rate        100% (threshold: 20%) — sample too small (1 verification)
+    ✓ Advertiser cluster   no repeat offenders detected
+    ✓ Policy hotspot       POL_002 (1 hits) — below threshold
+    ✓ Confidence drop      0.93 (threshold: 0.70) — normal
+  Recommendations:
+    - Override rate 100% appears high but sample size is too small (1 verification) — monitor as more data arrives
+
+=== Feature Showcase ===
+  ✓ Graceful Shutdown     SIGINT/SIGTERM → wait in-flight → flush JSONL → 5s failsafe
+  ✓ JSONL Persistence     9 reviews persisted (crash-safe, append-only)
+  ✓ Model Routing         per-pipeline×role routing + 529 cross-provider fallback
+  ✓ Tool Result Budget    2-layer: per-tool 32KB + per-round 200KB, disk fallback
+  ✓ Streaming Executor    tools dispatch during LLM stream (channel+goroutine)
+  ✓ Strategy A/B          v1.0 vs v2.0 → CONTINUE
+  ✓ Scheduled Recheck     0 pending, 1 completed
+  ✓ Training Data Pool    3 samples (review=2, verification_override=1, appeal_overturn=0, active_learning=0)
+  ✓ Tool Hooks            201 audit entries (pre+post tool execution)
+  ✓ Agent Memory          16 entries (region=6, single=4, content=2, policy=2, coordinator=2)
+
+  Total Cost: $0.0452

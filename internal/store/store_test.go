@@ -175,6 +175,40 @@ func TestStore_PostReviewHook(t *testing.T) {
 	}
 }
 
+func TestStore_SetVersionID_Persistence(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/reviews.jsonl"
+
+	rs := NewReviewStore(testLogger(), path)
+	rs.Store(&ReviewRecord{
+		ReviewResult: types.ReviewResult{AdID: "ad_v1", Decision: types.DecisionPassed, Confidence: 0.95},
+		AdvertiserID: "adv_001",
+		Region:       "US",
+	})
+
+	rs.SetVersionID("ad_v1", "v1.0")
+
+	// Verify in-memory update.
+	got, ok := rs.Get("ad_v1")
+	if !ok {
+		t.Fatal("expected record to exist")
+	}
+	if got.StrategyVersionID != "v1.0" {
+		t.Errorf("in-memory version = %q, want %q", got.StrategyVersionID, "v1.0")
+	}
+
+	// Verify persistence: recover from JSONL.
+	rs.Flush()
+	rs2 := NewReviewStore(testLogger(), path)
+	got2, ok := rs2.Get("ad_v1")
+	if !ok {
+		t.Fatal("expected record to survive JSONL recovery")
+	}
+	if got2.StrategyVersionID != "v1.0" {
+		t.Errorf("recovered version = %q, want %q", got2.StrategyVersionID, "v1.0")
+	}
+}
+
 func TestStore_UpdateVerification(t *testing.T) {
 	rs := NewReviewStore(testLogger(), "")
 	rs.Store(&ReviewRecord{
