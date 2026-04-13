@@ -125,6 +125,7 @@ func runWithRealLLM(cfg *config.Config, matrix *strategy.StrategyMatrix, logger 
 	fmt.Println("\n=== Monitor Report ===")
 	fmt.Print(monitorReport.FormatReport())
 
+	printTrainingDataPool(stores.trainingPool)
 	printFeatureShowcase(stores, client)
 }
 
@@ -272,6 +273,8 @@ func runWithMockLLM(matrix *strategy.StrategyMatrix, logger *slog.Logger, cfg *c
 	monitorReport := agent.RunMonitor(reviewStore, logger)
 	fmt.Println("\n=== Monitor Report ===")
 	fmt.Print(monitorReport.FormatReport())
+
+	printTrainingDataPool(trainingPool)
 
 	// Feature showcase (same format as real LLM mode).
 	mockStores := &engineStores{
@@ -591,6 +594,52 @@ func simulateVerification(rs *store.ReviewStore, tp *store.TrainingPool, matrix 
 	return stats
 }
 
+
+func printTrainingDataPool(tp *store.TrainingPool) {
+	if tp == nil || tp.Len() == 0 {
+		return
+	}
+
+	records := tp.Export()
+	stats := tp.Stats()
+
+	fmt.Println("\n=== Training Data Pool (标检训 → 训) ===")
+	fmt.Printf("  %d samples from %d sources:\n", stats.Total, len(stats.BySource))
+
+	// Source breakdown with counts.
+	sources := []struct {
+		key  store.TrainingSource
+		desc string
+	}{
+		{store.SourceReview, "high-confidence review (≥0.9)"},
+		{store.SourceVerificationOverride, "verifier disagreed with REJECTED"},
+		{store.SourceAppealOverturn, "appeal overturned rejection"},
+		{store.SourceActiveLearning, "boundary case (0.4-0.6 confidence)"},
+	}
+	for _, s := range sources {
+		count := stats.BySource[s.key]
+		if count == 0 {
+			fmt.Printf("    %-24s %d\n", string(s.key), count)
+			continue
+		}
+		fmt.Printf("    %-24s %d  — %s\n", string(s.key), count, s.desc)
+	}
+
+	// Per-record detail.
+	fmt.Println("  Records:")
+	for _, r := range records {
+		arrow := ""
+		if r.OriginalDecision != r.FinalDecision {
+			arrow = fmt.Sprintf(" (%s → %s)", r.OriginalDecision, r.FinalDecision)
+		}
+		priority := ""
+		if r.Priority == "high" {
+			priority = " [high-priority]"
+		}
+		fmt.Printf("    ├─ %s  source=%-24s conf=%.2f%s%s\n",
+			r.AdID, r.Source, r.Confidence, arrow, priority)
+	}
+}
 
 func demoRecheck(ctx context.Context, engine *agent.ReviewEngine, stores *engineStores, samples []types.TestAdSample) {
 	// Get all pending tasks (skip 24h wait for demo).

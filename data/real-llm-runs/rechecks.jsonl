@@ -1,2 +1,2 @@
-{"task_id":"recheck_ad_002_1776055995048","ad_id":"ad_002","scheduled_at":"2026-04-14T12:53:15.048009+08:00","reason":"high-risk PASSED ad: post-approval recheck","completed":false,"completed_at":"0001-01-01T00:00:00Z"}
-{"task_id":"recheck_ad_002_1776055995048","ad_id":"ad_002","scheduled_at":"2026-04-14T12:53:15.048009+08:00","reason":"high-risk PASSED ad: post-approval recheck","completed":true,"completed_at":"2026-04-13T12:54:33.821665+08:00","result":"unchanged"}
+{"task_id":"recheck_ad_002_1776056765942","ad_id":"ad_002","scheduled_at":"2026-04-14T13:06:05.942752+08:00","reason":"high-risk PASSED ad: post-approval recheck","completed":false,"completed_at":"0001-01-01T00:00:00Z"}
+{"task_id":"recheck_ad_002_1776056765942","ad_id":"ad_002","scheduled_at":"2026-04-14T13:06:05.942752+08:00","reason":"high-risk PASSED ad: post-approval recheck","completed":true,"completed_at":"2026-04-13T13:07:33.696684+08:00","result":"unchanged"}

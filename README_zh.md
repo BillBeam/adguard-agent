@@ -98,13 +98,24 @@ data/
     ✓ Policy hotspot       POL_002 (1 hits) — below threshold
     ✓ Confidence drop      0.93 (threshold: 0.70) — normal
 
+=== Training Data Pool (标检训 → 训) ===
+  3 samples from 2 sources:
+    review                   2  — high-confidence review (≥0.9)
+    verification_override    1  — verifier disagreed with REJECTED
+    appeal_overturn          0
+    active_learning          0
+  Records:
+    ├─ ad_001  source=review                   conf=0.98
+    ├─ ad_001  source=verification_override    conf=0.98 (REJECTED → MANUAL_REVIEW)
+    ├─ ad_002  source=review                   conf=0.95
+
 === Feature Showcase ===
   ✓ JSONL Persistence     9 reviews persisted (crash-safe, append-only)
   ✓ Model Routing         per-pipeline×role routing + 529 cross-provider fallback
   ✓ Scheduled Recheck     0 pending, 1 completed
   ✓ Training Data Pool    3 samples (review=2, verification_override=1, appeal_overturn=0, active_learning=0)
-  ✓ Agent Memory          16 entries (region=6, single=4, content=2, policy=2, coordinator=2)
-  Total Cost: $0.0452
+  ✓ Agent Memory          17 entries (policy=2, content=2, coordinator=3, single=4, region=6)
+  Total Cost: $0.0458
 ```
 
 ## 技术栈
